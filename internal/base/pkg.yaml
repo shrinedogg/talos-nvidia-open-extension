@@ -1,0 +1,11 @@
+# Mirrors siderolabs/extensions internal/base: tools image (bash, coreutils)
+# plus the extensions-validator used by every extension's test step.
+name: base
+variant: scratch
+shell: /bin/bash
+dependencies:
+  - image: "{{ .BUILD_ARG_TOOLS_PREFIX }}/tools:{{ .BUILD_ARG_TOOLS }}"
+  - image: ghcr.io/siderolabs/extensions-validator:84cecb0
+finalize:
+  - from: /
+    to: /

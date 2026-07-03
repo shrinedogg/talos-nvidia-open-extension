@@ -1,0 +1,32 @@
+# Shared version pins for all packages in this repo.
+#
+# Sources (chosen to track the LATEST GA driver, ahead of NVIDIA's redist
+# channel which lags GitHub releases by weeks/months):
+#
+#   - Kernel module sources: GitHub release tarball of
+#     NVIDIA/open-gpu-kernel-modules (arch-independent; compiles the full
+#     resource manager from src/ instead of linking NVIDIA's precompiled
+#     nv-kernel.o_binary blobs shipped in redist archives).
+#   - GSP firmware: extracted from the official .run installer at
+#     download.nvidia.com/XFree86 (the firmware is NOT in the GitHub repo and
+#     MUST exactly match the module version).
+#
+# NVIDIA publishes no checksums for either source; values below are computed
+# and pinned by hack/update-checksums.sh. Vulkan-beta prereleases (e.g.
+# 595.44.x) are marked prerelease on GitHub and must not be pinned.
+#
+# CAVEAT: userspace driver libs (nvidia-container-toolkit pairing) must match
+# this version exactly; see PLAN.md Phase 6.
+
+# renovate: datasource=github-releases depName=NVIDIA/open-gpu-kernel-modules
+NVIDIA_DRIVER_VERSION: 610.43.02
+
+# GitHub source tarball (kernel modules)
+NVIDIA_DRIVER_SRC_SHA256: 62fbbe29527e30be32cb38b30dfad2e94db1ca87f77a58090e563c7669857e60
+NVIDIA_DRIVER_SRC_SHA512: 7049f394a7084544fbfea415b5d24c285fe529002cd21fc8b5c81a15468ccf07473b619070997fb04d016d114577d23e69b0a73f8a98e60a1819a07735e50830
+
+# .run installers (GSP firmware)
+NVIDIA_RUN_AMD64_SHA256: 3034a054bb4cdf7752ff8dc272564cb105513804bff53538945901b16ca77463
+NVIDIA_RUN_AMD64_SHA512: aa626828964bd9b68dffd07865d2fb05de09b0fe944d6ff8af20412601fc72459186eee580e290c379e1a2b74f8e88c6ee406016814850952cf9330e64ab3032
+NVIDIA_RUN_ARM64_SHA256: 8ac5939e891403f7735a870504b6a59e4e3e3b9812131563b37755a5d61353cf
+NVIDIA_RUN_ARM64_SHA512: fe44af192ec259793b2f05e53da25481fae5a9fe01131b3b4f7893858c9f788b5d031cd83b7439bf3f1ee1be48c629548d61d8f611153324ba5b46583846a1a4

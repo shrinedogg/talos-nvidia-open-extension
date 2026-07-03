@@ -1,0 +1,148 @@
+# CI for talos-nvidia-open-extension.
+#
+# Behavior by event:
+#
+#   pull_request       Build the kernel-modules pkg only, without pushing.
+#                      The "extensions" job is skipped on PRs: it must PULL the
+#                      pkg image built in phase 1 from ghcr.io, and PR builds
+#                      don't push it (GITHUB_TOKEN on fork PRs can't write to
+#                      packages anyway). This means extension repackaging is
+#                      only exercised on push/tag/dispatch events — a known,
+#                      accepted limitation chosen over running a local registry
+#                      service container.
+#
+#   push (main / tag)  Build + push per-arch pkg images, merge them into one
+#   workflow_dispatch  multi-arch manifest, then build + push both extensions.
+#
+# Tag trigger: release tags follow <driver-version>-<talos-version>
+# (e.g. 595.71.05-v1.13.5), which has no common "v*" prefix, so we trigger on
+# all tags rather than a glob pattern.
+
+name: ci
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Pushing to Docker Hub requires two repository secrets:
+#   DOCKERHUB_USERNAME - your Docker Hub username
+#   DOCKERHUB_TOKEN    - an access token from hub.docker.com/settings/security
+env:
+  REGISTRY: docker.io
+  USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+
+jobs:
+  # Phase 1: NVIDIA open kernel modules compiled against the Talos kernel
+  # inside the pinned siderolabs/pkgs checkout. Full kernel compile on a cold
+  # cache: 30-60+ minutes per arch, hence the generous timeout.
+  #
+  # Each matrix leg pushes an arch-suffixed tag (…:<version>-amd64 /
+  # …:<version>-arm64); the extensions job merges them into the unsuffixed
+  # multi-arch tag that the Makefile's PKG_IMAGE default expects. arm64 runs
+  # on a native arm runner — a kernel build under QEMU is impractically slow.
+  pkg:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Determine version
+        id: version
+        run: |
+          driver="$(awk '/^NVIDIA_DRIVER_VERSION:/ {print $2}' vars.yaml)"
+          talos="$(awk '/^TALOS_VERSION \?=/ {print $3}' Makefile)"
+          echo "version=${driver}-${talos}" >> "$GITHUB_OUTPUT"
+
+      # KERNEL_SRC_FALLBACK=0: GitHub runners reach cdn.kernel.org normally,
+      # so CI uses the canonical upstream tarball with the checksums pinned in
+      # the siderolabs/pkgs Pkgfile. The git.kernel.org snapshot fallback
+      # (default =1) exists for local networks that block kernel.org tarball
+      # downloads.
+      - name: Build kernel-modules pkg (push on non-PR events)
+        run: |
+          make nvidia-open-latest-pkg \
+            KERNEL_SRC_FALLBACK=0 \
+            REGISTRY="${REGISTRY}" \
+            USERNAME="${USERNAME}" \
+            PLATFORM="linux/${{ matrix.arch }}" \
+            PKG_IMAGE="${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}-${{ matrix.arch }}" \
+            PUSH=${{ github.event_name != 'pull_request' }}
+
+  # Phase 2: extension images. Repackaging only (no compilation), so building
+  # the arm64 leg under QEMU here is cheap, and one multi-platform build
+  # produces proper multi-arch extension images.
+  extensions:
+    if: github.event_name != 'pull_request'
+    needs: pkg
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Determine version
+        id: version
+        run: |
+          driver="$(awk '/^NVIDIA_DRIVER_VERSION:/ {print $2}' vars.yaml)"
+          talos="$(awk '/^TALOS_VERSION \?=/ {print $3}' Makefile)"
+          echo "version=${driver}-${talos}" >> "$GITHUB_OUTPUT"
+
+      - name: Merge per-arch pkg images into a multi-arch manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}" \
+            "${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}-amd64" \
+            "${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}-arm64"
+
+      - name: Build and push extension images
+        run: |
+          make nvidia-open-modules nvidia-open-firmware \
+            REGISTRY="${REGISTRY}" \
+            USERNAME="${USERNAME}" \
+            PLATFORM=linux/amd64,linux/arm64 \
+            PUSH=true

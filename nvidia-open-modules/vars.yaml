@@ -1,0 +1,3 @@
+# driver version + Talos version the modules are built against
+VERSION: "{{ .NVIDIA_DRIVER_VERSION }}-{{ .BUILD_ARG_TAG }}"
+TIER: "community"

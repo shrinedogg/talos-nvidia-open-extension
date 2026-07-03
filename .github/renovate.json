@@ -1,0 +1,39 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate config for talos-nvidia-open-extension. Driver bumps track GitHub releases of NVIDIA/open-gpu-kernel-modules directly (we build modules from the source tarball and pull GSP firmware from the matching .run installer, so the redist-channel lag does not apply). The github-releases datasource skips prereleases by default, which excludes the 595.44.x Vulkan-beta releases. After a driver bump merges, run hack/update-checksums.sh to recompute all six checksums in vars.yaml (NVIDIA publishes none for these artifacts).",
+  "extends": [
+    ":dependencyDashboard",
+    ":semanticCommitScopeDisabled",
+    "schedule:earlyMondays"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "NVIDIA driver pin in vars.yaml, annotated with '# renovate: datasource=github-releases depName=NVIDIA/open-gpu-kernel-modules' above NVIDIA_DRIVER_VERSION. Same matchString shape as siderolabs/pkgs uses for its Pkgfile.",
+      "versioningTemplate": "{{#if versioning}}{{versioning}}{{else}}semver{{/if}}",
+      "managerFilePatterns": ["/(^|/)vars\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?)(?:\\s+extractVersion=(?<extractVersion>.+?))?(?:\\s+versioning=(?<versioning>.+?))?\\s+depName=(?<depName>.+?)?\\s.*_(?:version|VERSION):\\s+(?<currentValue>.*)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "TALOS_VERSION pin in the Makefile, tracked against siderolabs/talos releases. PKGS and TOOLS are intentionally NOT automated: PKGS must equal the pkgs tag pinned by the target Talos release (see 'make talos-pkgs-version') and TOOLS must match TOOLS_REV in that pkgs tag's Pkgfile — no datasource models that coupling, so bump all three together by hand when moving to a new Talos release.",
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos",
+      "versioningTemplate": "semver",
+      "managerFilePatterns": ["/(^|/)Makefile$/"],
+      "matchStrings": [
+        "TALOS_VERSION \\?= (?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "NVIDIA driver versions are not semver (e.g. 610.43.02 or 595.84); use the same regex versioning siderolabs/pkgs applies to its nvidia driver packages.",
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.?(?<patch>\\d+)?$",
+      "matchPackageNames": ["NVIDIA/open-gpu-kernel-modules"]
+    }
+  ],
+  "separateMajorMinor": false
+}

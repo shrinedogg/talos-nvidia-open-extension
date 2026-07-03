@@ -1,0 +1,60 @@
+# NVIDIA open GPU kernel modules built from the GitHub source tarball against
+# the Talos kernel. This pkg is overlaid into a pinned siderolabs/pkgs checkout
+# (see Makefile: overlay-sync) so `stage: kernel-build` and the LLVM toolchain
+# vars resolve inside that build graph.
+#
+# Unlike siderolabs/pkgs (which builds from NVIDIA's redist archive, shipping
+# precompiled nv-kernel.o_binary blobs), the GitHub tarball compiles the full
+# OS-independent resource manager from src/ via the repo's top-level Makefile.
+# This is what allows tracking GA releases ahead of the redist channel
+# (e.g. 610.43.02), at the cost of a somewhat longer module build.
+name: nvidia-open-latest-pkg
+variant: scratch
+shell: /bin/bash
+dependencies:
+  - stage: base
+  - stage: kernel-build
+  - image: "{{ .LLVM_IMAGE }}:{{ .TOOLS_REV }}"
+steps:
+  - sources:
+      # arch-independent source tarball (kernel-open/ + src/)
+      - url: https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/{{ .NVIDIA_DRIVER_VERSION }}.tar.gz
+        destination: nvidia.tar.gz
+        sha256: "{{ .NVIDIA_DRIVER_SRC_SHA256 }}"
+        sha512: "{{ .NVIDIA_DRIVER_SRC_SHA512 }}"
+    env:
+      ARCH: {{ if eq .ARCH "aarch64"}}arm64{{ else if eq .ARCH "x86_64" }}x86_64{{ else }}unsupported{{ end }}
+      LLVM: 1
+    prepare:
+      - |
+        mkdir -p /nvidia-driver
+        tar xf nvidia.tar.gz -C /nvidia-driver --strip-components=1
+    build:
+      - |
+        cd /nvidia-driver
+
+        # Top-level `modules` target compiles the resource manager from src/
+        # (nv-kernel.o, nv-modeset-kernel.o) and then the kernel modules in
+        # kernel-open/ against the Talos kernel tree at /src.
+        # Explicitly specify LLVM binutils for ThinLTO compatibility,
+        # https://github.com/NVIDIA/open-gpu-kernel-modules/issues/214
+        make LD=ld.lld OBJDUMP=llvm-objdump -j $(nproc) SYSSRC=/src modules
+    install:
+      - |
+        cd /nvidia-driver
+
+        mkdir -p /rootfs/usr/lib/modules/$(cat /src/include/config/kernel.release)/
+        cp /src/modules.order /rootfs/usr/lib/modules/$(cat /src/include/config/kernel.release)/
+        cp /src/modules.builtin /rootfs/usr/lib/modules/$(cat /src/include/config/kernel.release)/
+        cp /src/modules.builtin.modinfo /rootfs/usr/lib/modules/$(cat /src/include/config/kernel.release)/
+
+        make LD=ld.lld OBJDUMP=llvm-objdump -j $(nproc) modules_install SYSSRC=/src INSTALL_MOD_PATH=/rootfs/usr INSTALL_MOD_STRIP=1
+    test:
+      - |
+        # https://www.kernel.org/doc/html/v4.15/admin-guide/module-signing.html#signed-modules-and-stripping
+        find /rootfs/usr/lib/modules -name '*.ko' -exec grep -FL '~Module signature appended~' {} \+
+      - |
+        fhs-validator /rootfs
+finalize:
+  - from: /rootfs
+    to: /

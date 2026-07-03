@@ -1,0 +1,10 @@
+version: v1alpha1
+metadata:
+  name: nvidia-open-firmware
+  version: "{{ .VERSION }}"
+  author: shrinedogg
+  description: |
+    [{{ .TIER }}] NVIDIA GSP firmware required by the open GPU kernel modules. Version must match the nvidia-open-modules extension exactly.
+  compatibility:
+    talos:
+      version: ">= v1.13.0"

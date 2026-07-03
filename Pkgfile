@@ -1,0 +1,6 @@
+# syntax = ghcr.io/siderolabs/bldr:v0.6.0
+
+format: v1alpha2
+
+labels:
+  org.opencontainers.image.source: https://github.com/shrinedogg/talos-nvidia-open-extension

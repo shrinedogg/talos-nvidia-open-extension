@@ -1,0 +1,163 @@
+# talos-nvidia-open-extension build orchestration
+#
+# Two-phase build (see PLAN.md and README.md):
+#
+#   1. make nvidia-open-latest-pkg
+#      Compiles the NVIDIA open GPU kernel modules against the Talos kernel
+#      inside a pinned checkout of siderolabs/pkgs. The `kernel-build` stage is
+#      NOT published upstream (only exists inside the pkgs build graph), so we
+#      overlay our pkg into that graph and let BuildKit rebuild the chain
+#      (tools -> kernel-prepare -> kernel-build -> nvidia modules).
+#      Expect 30-60+ min per arch on first build (full kernel compile);
+#      subsequent builds hit the BuildKit cache.
+#      Result is pushed to $(REGISTRY)/$(USERNAME)/nvidia-open-latest-pkg.
+#
+#   2. make nvidia-open-modules nvidia-open-firmware
+#      Builds the Talos system extension images from this repo's bldr graph,
+#      repackaging the pkg image from phase 1 (modules) and the NVIDIA redist
+#      archive (GSP firmware).
+
+# Any OCI registry works (docker.io, ghcr.io, a local registry, ...).
+# For Docker Hub: REGISTRY=docker.io USERNAME=<your Docker Hub username>,
+# after `docker login`. Note: Talos nodes must be able to pull the extension
+# images, so the repositories need to be public (or registry auth configured
+# in the machine config).
+REGISTRY ?= docker.io
+USERNAME ?= shrinedogg
+PUSH ?= false
+PLATFORM ?= linux/amd64
+PROGRESS ?= auto
+DEST ?= _out
+
+BUILD := docker buildx build
+
+# --- Talos / pkgs pinning ----------------------------------------------------
+# PKGS must be the pkgs tag pinned by the target Talos release, from:
+#   https://raw.githubusercontent.com/siderolabs/talos/$(TALOS_VERSION)/pkg/machinery/gendata/data/pkgs
+# TOOLS must match TOOLS_REV in the pinned siderolabs/pkgs Pkgfile.
+TALOS_VERSION ?= v1.13.5
+PKGS ?= v1.13.0-36-g6b315f7
+PKGS_PREFIX ?= ghcr.io/siderolabs
+TOOLS ?= v1.13.0-6-g9b78252
+TOOLS_PREFIX ?= ghcr.io/siderolabs
+
+# Driver version single source of truth: vars.yaml
+NVIDIA_DRIVER_VERSION := $(shell awk '/^NVIDIA_DRIVER_VERSION:/ {print $$2}' vars.yaml)
+
+# Extension/image version convention: <driver-version>-<talos-version>
+TAG ?= $(TALOS_VERSION)
+VERSION := $(NVIDIA_DRIVER_VERSION)-$(TAG)
+
+PKG_IMAGE ?= $(REGISTRY)/$(USERNAME)/nvidia-open-latest-pkg:$(VERSION)
+
+COMMON_ARGS := --progress=$(PROGRESS)
+COMMON_ARGS += --platform=$(PLATFORM)
+COMMON_ARGS += --provenance=false
+
+EXT_BUILD_ARGS := --build-arg=TAG=$(TAG)
+EXT_BUILD_ARGS += --build-arg=PKGS=$(PKGS)
+EXT_BUILD_ARGS += --build-arg=PKGS_PREFIX=$(PKGS_PREFIX)
+EXT_BUILD_ARGS += --build-arg=TOOLS=$(TOOLS)
+EXT_BUILD_ARGS += --build-arg=TOOLS_PREFIX=$(TOOLS_PREFIX)
+EXT_BUILD_ARGS += --build-arg=NVIDIA_PKG_IMAGE=$(PKG_IMAGE)
+
+TARGETS = nvidia-open-modules nvidia-open-firmware
+
+.PHONY: all
+all: $(TARGETS)
+
+.PHONY: help
+help: ## Show available targets.
+	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-28s %s\n", $$1, $$2}'
+
+# --- Phase 1: kernel-module pkg built inside pinned siderolabs/pkgs checkout --
+
+# PKGS is usually a `git describe` string (e.g. v1.13.0-36-g6b315f7); the
+# commit to check out is the part after the final -g. If PKGS is a plain tag,
+# check out the tag itself.
+PKGS_REF := $(shell echo $(PKGS) | sed -n 's/.*-g\([0-9a-f][0-9a-f]*\)$$/\1/p')
+ifeq ($(PKGS_REF),)
+PKGS_REF := $(PKGS)
+endif
+
+# The pkgs checkout must live OUTSIDE this repo: bldr scans the entire build
+# context for pkg.yaml files and does not honor .dockerignore, so a checkout
+# under the repo root would leak the whole pkgs graph into ours.
+BUILD_DIR ?= $(HOME)/.cache/talos-nvidia-open-extension
+PKGS_DIR := $(BUILD_DIR)/pkgs
+
+# --- kernel source fallback ---------------------------------------------------
+# Some network paths block kernel tarball downloads from cdn.kernel.org and
+# its mirror network (observed locally 2026-07-03: valid TLS to real Fastly,
+# but path-based 404s for all /pub/linux/kernel/v6.x/ tarballs, on multiple
+# mirrors — while www.kernel.org and git.kernel.org work fine).
+# KERNEL_SRC_FALLBACK=1 (default for local builds) redirects the pkgs kernel
+# download to git.kernel.org's cgit snapshot service, generated from the
+# stable tree's release tag (verified identical source layout). The snapshot
+# is a .tar.gz with its own checksums, pinned below. KERNEL_SRC_FALLBACK=0
+# uses upstream cdn.kernel.org with the canonical checksums pinned in the
+# pkgs Pkgfile — CI sets this explicitly, and prefer it wherever
+# cdn.kernel.org is reachable.
+# NOTE: pinned to the kernel version of the current PKGS tag (6.18.36) —
+# re-pin when bumping PKGS (download the snapshot, shasum -a 256/512).
+KERNEL_SRC_FALLBACK ?= 1
+KERNEL_VERSION ?= 6.18.36
+KERNEL_SRC_URL ?= https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/snapshot/linux-$(KERNEL_VERSION).tar.gz
+KERNEL_SRC_SHA256 ?= 672743b5619fc9a16dd51bda4b2b6bf8872b596dd07cda3e9bd8393e6abad2cf
+KERNEL_SRC_SHA512 ?= 3e259290127ce79c720a15db3c8e2cbddf6bda26743f696f569211379da788950ed373b72f87cc2f97a9e3bbd3eb3697d1f21052b58b8aa819d9460d021cd8ab
+
+$(PKGS_DIR):
+	git clone --filter=blob:none https://github.com/siderolabs/pkgs $@
+	git -C $@ checkout $(PKGS_REF)
+
+.PHONY: overlay-sync
+overlay-sync: $(PKGS_DIR) ## Sync overlay/ pkg + vars.yaml into the pkgs checkout.
+	git -C $(PKGS_DIR) checkout -- .
+	git -C $(PKGS_DIR) checkout $(PKGS_REF)
+	rm -rf $(PKGS_DIR)/nvidia-open-latest
+	cp -R overlay/nvidia-open-latest $(PKGS_DIR)/nvidia-open-latest
+	cp vars.yaml $(PKGS_DIR)/nvidia-open-latest/vars.yaml
+ifeq ($(KERNEL_SRC_FALLBACK),1)
+	hack/patch-kernel-source.sh $(PKGS_DIR) $(KERNEL_SRC_URL) $(KERNEL_SRC_SHA256) $(KERNEL_SRC_SHA512)
+endif
+
+.PHONY: nvidia-open-latest-pkg
+nvidia-open-latest-pkg: overlay-sync ## Build (and PUSH=true to push) the kernel-modules pkg image.
+	$(BUILD) $(COMMON_ARGS) \
+		--file=$(PKGS_DIR)/Pkgfile \
+		--target=$@ \
+		--tag=$(PKG_IMAGE) \
+		--output=type=image,push=$(PUSH) \
+		$(PKGS_DIR)
+
+# --- Phase 2: extension images (this repo's bldr graph) -----------------------
+
+.PHONY: $(TARGETS)
+$(TARGETS): ## Build extension image (PUSH=true to push).
+	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
+		--file=Pkgfile \
+		--target=$@ \
+		--tag=$(REGISTRY)/$(USERNAME)/$@:$(VERSION) \
+		--output=type=image,push=$(PUSH) \
+		.
+
+local-%: ## Build extension and export rootfs to $(DEST)/<name> for inspection.
+	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
+		--file=Pkgfile \
+		--target=$* \
+		--output=type=local,dest=$(DEST)/$* \
+		.
+
+# --- Maintenance ---------------------------------------------------------------
+
+.PHONY: update-checksums
+update-checksums: ## Refresh NVIDIA archive checksums in vars.yaml.
+	hack/update-checksums.sh
+
+.PHONY: talos-pkgs-version
+talos-pkgs-version: ## Print the pkgs tag pinned by $(TALOS_VERSION).
+	@curl -fsSL https://raw.githubusercontent.com/siderolabs/talos/$(TALOS_VERSION)/pkg/machinery/gendata/data/pkgs
+
+.PHONY: clean
+clean: ## Remove build artifacts and the pkgs checkout.
+	rm -rf $(BUILD_DIR) _out

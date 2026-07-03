@@ -1,0 +1,5 @@
+# bldr scans the whole build context for pkg.yaml files; the pkgs checkout in
+# _build/ must not leak into this repo's build graph.
+_build/
+_out/
+.git/
