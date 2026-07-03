@@ -56,15 +56,16 @@ make local-nvidia-open-modules DEST=_out
 make talos-pkgs-version TALOS_VERSION=v1.13.5
 ```
 
-**Kernel source fallback:** some network paths block kernel tarball
-downloads from cdn.kernel.org and its mirrors (path-based 404s despite valid
-TLS — while www.kernel.org and git.kernel.org work). `KERNEL_SRC_FALLBACK=1`
-(the default, for local builds) redirects the kernel download to
-git.kernel.org's cgit snapshot service with independently pinned checksums
-(see Makefile). CI passes `KERNEL_SRC_FALLBACK=0` to use the canonical
-cdn.kernel.org tarball with the checksums pinned in the siderolabs/pkgs
-Pkgfile — prefer that wherever cdn.kernel.org is reachable. Re-pin
-`KERNEL_SRC_*` when bumping `PKGS`.
+**Kernel source fallback:** cdn.kernel.org's release tarballs for v6.x
+currently 404 from every egress tested (local networks, GitHub Actions
+runners, independent mirrors) while www.kernel.org and git.kernel.org work
+fine. `KERNEL_SRC_FALLBACK=1` (the default, used locally and in CI) redirects
+the kernel download to git.kernel.org's cgit snapshot service — generated
+from the stable tree's release tag, verified identical source layout — with
+independently pinned checksums (see Makefile). Set `KERNEL_SRC_FALLBACK=0`
+to use the canonical cdn.kernel.org tarball with the siderolabs/pkgs-pinned
+checksums if/when the CDN serves it again. Re-pin `KERNEL_SRC_*` when
+bumping `PKGS`.
 
 **Build host note:** the phase-1 kernel compile targets `linux/amd64` by
 default; on an Apple Silicon Mac that runs under emulation and takes hours.

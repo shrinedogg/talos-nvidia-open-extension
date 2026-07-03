@@ -492,10 +492,14 @@ independent mirrors (MIT, Rackspace), MIT serves parent directory listings but r
   layout); extract command patched to auto-detect compression.
 - ✅ Validated live: `kernel-prepare:cksum-verify` passed and `kernel-build` entered the
   actual kernel compile. Downloads/verifications are now in the BuildKit cache.
-- Defaults: `KERNEL_SRC_FALLBACK=1` locally (works regardless of the block); **CI passes
-  `KERNEL_SRC_FALLBACK=0`** since GitHub runners reach cdn.kernel.org normally and the
-  canonical tarball keeps Sidero's original pinned checksums (smaller supply-chain
-  deviation). Re-pin `KERNEL_SRC_*` checksums when bumping `PKGS`.
+- Defaults: `KERNEL_SRC_FALLBACK=1` locally. CI initially overrode to `=0` on the
+  assumption GitHub runners could reach cdn.kernel.org — **disproven**: the CI run
+  failed with `digest mismatch sha256:55f7d9e9…` (the checksum of the CDN's 404 page),
+  i.e. GitHub's runners get the same 404s. cdn.kernel.org v6.x tarballs are unavailable
+  from every egress tested (user LAN, agent fetch backend, GitHub Azure runners,
+  independent mirrors), so the cgit-snapshot fallback is now the default everywhere,
+  CI included. Revisit `KERNEL_SRC_FALLBACK=0` if the CDN recovers. Re-pin
+  `KERNEL_SRC_*` checksums when bumping `PKGS`.
 - ⚠ Local caveat: `PLATFORM=linux/amd64` on an Apple Silicon Mac compiles the kernel
   under emulation (hours). Prefer the GitHub Actions `pkg` job (native amd64/arm64
   runners) for the full build.
