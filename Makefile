@@ -150,6 +150,23 @@ local-%: ## Build extension and export rootfs to $(DEST)/<name> for inspection.
 
 # --- Maintenance ---------------------------------------------------------------
 
+# For a self-hosted Image Factory in custom-registry mode, override
+# CATALOG_TAG to the repo the factory expects (usually
+# <mirror-registry>/siderolabs/extensions:<talos-version>) and set
+# MIRROR_NS=<mirror-registry>/siderolabs so official refs point at the mirror.
+CATALOG_TAG ?= $(REGISTRY)/$(USERNAME)/extensions:$(TALOS_VERSION)
+
+.PHONY: catalog
+catalog: ## Build/push extensions catalog (official + ours) for self-hosted Image Factory.
+	hack/build-catalog.sh \
+		--talos-version $(TALOS_VERSION) \
+		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-modules:$(VERSION) \
+		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-firmware:$(VERSION) \
+		--tag $(CATALOG_TAG) \
+		$(if $(MIRROR_NS),--mirror-namespace $(MIRROR_NS)) \
+		$(if $(filter true,$(PUSH)),--push) \
+		--out $(DEST)/catalog
+
 .PHONY: update-checksums
 update-checksums: ## Refresh NVIDIA archive checksums in vars.yaml.
 	hack/update-checksums.sh

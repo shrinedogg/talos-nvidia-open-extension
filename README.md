@@ -100,7 +100,7 @@ To bump Talos, three Makefile pins move together:
 
 ## Usage
 
-See [`docs/machine-config-example.yaml`](docs/machine-config-example.yaml) for
+See [`_docs/machine-config-example.yaml`](_docs/machine-config-example.yaml) for
 a machine-config patch. Key points:
 
 - Both extensions must be baked into the installer/boot image together (Image
@@ -114,8 +114,8 @@ a machine-config patch. Key points:
   kernel-module driver version exactly. Since this repo intentionally runs
   ahead of Sidero's pinned driver versions, their `nvidia-container-toolkit`
   extension will generally **not** match — a matching userspace extension
-  built from the same `.run` installer is the planned follow-up (see PLAN.md
-  Phase 6).
+  built from the same `.run` installer is the planned follow-up (see
+  `_docs/PLAN.md` Phase 6).
 
 ## Compatibility
 
