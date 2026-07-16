@@ -95,11 +95,11 @@ jobs:
           talos="$(awk '/^TALOS_VERSION \?=/ {print $3}' Makefile)"
           echo "version=${driver}-${talos}" >> "$GITHUB_OUTPUT"
 
-      # KERNEL_SRC_FALLBACK stays at the Makefile default (=1, git.kernel.org
-      # cgit snapshot with independently pinned checksums): cdn.kernel.org's
-      # v6.x tarballs 404 from GitHub runners too (verified 2026-07-03 — the
-      # "digest mismatch sha256:55f7d9e9..." failure is the checksum of the
-      # CDN's 404 page). Revisit if/when cdn.kernel.org serves tarballs again.
+      # KERNEL_SRC_FALLBACK defaults to 0 (cdn.kernel.org functional again
+      # as of 2026-07-16), so CI uses the canonical kernel.org tarball with the
+      # checksums pinned in the siderolabs/pkgs Pkgfile. The git.kernel.org
+      # snapshot fallback (=1) remains available for networks where kernel.org
+      # tarball downloads are blocked.
       - name: Build kernel-modules pkg (push on non-PR events)
         run: |
           make nvidia-open-latest-pkg \
