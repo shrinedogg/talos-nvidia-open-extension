@@ -56,16 +56,14 @@ make local-nvidia-open-modules DEST=_out
 make talos-pkgs-version TALOS_VERSION=v1.13.5
 ```
 
-**Kernel source fallback:** cdn.kernel.org's release tarballs for v6.x
-currently 404 from every egress tested (local networks, GitHub Actions
-runners, independent mirrors) while www.kernel.org and git.kernel.org work
-fine. `KERNEL_SRC_FALLBACK=1` (the default, used locally and in CI) redirects
-the kernel download to git.kernel.org's cgit snapshot service — generated
-from the stable tree's release tag, verified identical source layout — with
-independently pinned checksums (see Makefile). Set `KERNEL_SRC_FALLBACK=0`
-to use the canonical cdn.kernel.org tarball with the siderolabs/pkgs-pinned
-checksums if/when the CDN serves it again. Re-pin `KERNEL_SRC_*` when
-bumping `PKGS`.
+**Kernel source fallback:** cdn.kernel.org is currently functional, so the
+build pulls the canonical kernel release tarball from there with the
+checksums pinned in the siderolabs/pkgs Pkgfile (`KERNEL_SRC_FALLBACK=0`, the
+default). `KERNEL_SRC_FALLBACK=1` redirects the kernel download to
+git.kernel.org's cgit snapshot service with independently pinned checksums
+(see Makefile) — kept as an escape hatch because kernel.org's tarball
+distribution went down globally for a period in 2026-07. Re-pin
+`KERNEL_SRC_*` when bumping `PKGS`.
 
 **Build host note:** the phase-1 kernel compile targets `linux/amd64` by
 default; on an Apple Silicon Mac that runs under emulation and takes hours.
@@ -121,7 +119,7 @@ a machine-config patch. Key points:
 
 | Extension version | Talos | Kernel | pkgs |
 |---|---|---|---|
-| 610.43.02-v1.13.5 | v1.13.5 | 6.18.36 | v1.13.0-36-g6b315f7 |
+| 610.43.03-v1.13.6 | v1.13.6 | 6.18.38 | v1.13.0-43-gd8c80cc |
 
 [siderolabs/extensions]: https://github.com/siderolabs/extensions
 [siderolabs/pkgs]: https://github.com/siderolabs/pkgs

@@ -35,10 +35,10 @@ BUILD := docker buildx build
 # PKGS must be the pkgs tag pinned by the target Talos release, from:
 #   https://raw.githubusercontent.com/siderolabs/talos/$(TALOS_VERSION)/pkg/machinery/gendata/data/pkgs
 # TOOLS must match TOOLS_REV in the pinned siderolabs/pkgs Pkgfile.
-TALOS_VERSION ?= v1.13.5
-PKGS ?= v1.13.0-36-g6b315f7
+TALOS_VERSION ?= v1.13.6
+PKGS ?= v1.13.0-43-gd8c80cc
 PKGS_PREFIX ?= ghcr.io/siderolabs
-TOOLS ?= v1.13.0-6-g9b78252
+TOOLS ?= v1.13.0-7-gc58afd5
 TOOLS_PREFIX ?= ghcr.io/siderolabs
 
 # Driver version single source of truth: vars.yaml
@@ -87,24 +87,24 @@ BUILD_DIR ?= $(HOME)/.cache/talos-nvidia-open-extension
 PKGS_DIR := $(BUILD_DIR)/pkgs
 
 # --- kernel source fallback ---------------------------------------------------
-# Some network paths block kernel tarball downloads from cdn.kernel.org and
-# its mirror network (observed locally 2026-07-03: valid TLS to real Fastly,
-# but path-based 404s for all /pub/linux/kernel/v6.x/ tarballs, on multiple
-# mirrors — while www.kernel.org and git.kernel.org work fine).
-# KERNEL_SRC_FALLBACK=1 (default for local builds) redirects the pkgs kernel
-# download to git.kernel.org's cgit snapshot service, generated from the
-# stable tree's release tag (verified identical source layout). The snapshot
-# is a .tar.gz with its own checksums, pinned below. KERNEL_SRC_FALLBACK=0
-# uses upstream cdn.kernel.org with the canonical checksums pinned in the
-# pkgs Pkgfile — CI sets this explicitly, and prefer it wherever
-# cdn.kernel.org is reachable.
-# NOTE: pinned to the kernel version of the current PKGS tag (6.18.36) —
-# re-pin when bumping PKGS (download the snapshot, shasum -a 256/512).
-KERNEL_SRC_FALLBACK ?= 1
-KERNEL_VERSION ?= 6.18.36
+# cdn.kernel.org is currently functional (verified 2026-07-16), so
+# KERNEL_SRC_FALLBACK defaults to 0 and the pkgs build pulls the canonical
+# release tarball from cdn.kernel.org with the checksums pinned in the pkgs
+# Pkgfile.
+#
+# KERNEL_SRC_FALLBACK=1 redirects the kernel download to git.kernel.org's
+# cgit snapshot service — kept as an escape hatch because kernel.org's tarball
+# distribution has gone down before (2026-07-03: path-based 404s across cdn
+# AND all rsync mirrors, from multiple egresses including GitHub runners).
+# The snapshot is a .tar.gz with its own checksums, pinned below to the kernel
+# version of the current PKGS tag.
+# NOTE: re-pin KERNEL_SRC_* when bumping PKGS (download the snapshot,
+# shasum -a 256/512).
+KERNEL_SRC_FALLBACK ?= 0
+KERNEL_VERSION ?= 6.18.38
 KERNEL_SRC_URL ?= https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/snapshot/linux-$(KERNEL_VERSION).tar.gz
-KERNEL_SRC_SHA256 ?= 672743b5619fc9a16dd51bda4b2b6bf8872b596dd07cda3e9bd8393e6abad2cf
-KERNEL_SRC_SHA512 ?= 3e259290127ce79c720a15db3c8e2cbddf6bda26743f696f569211379da788950ed373b72f87cc2f97a9e3bbd3eb3697d1f21052b58b8aa819d9460d021cd8ab
+KERNEL_SRC_SHA256 ?= 8d6507a7299df162362517016f0939aa9f340d4c3672bcde3905449093405fd0
+KERNEL_SRC_SHA512 ?= aafac276bb6e3081717ded3817dd3eb68ed8d6eebb237cc50bfe6a6b86ac57c1f0528c70fe41ee4fc9fcf03ed3a90a03577864e2dbc56f16f287fce23ff0f5f3
 
 $(PKGS_DIR):
 	git clone --filter=blob:none https://github.com/siderolabs/pkgs $@
