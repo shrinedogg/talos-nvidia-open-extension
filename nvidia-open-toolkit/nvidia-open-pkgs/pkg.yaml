@@ -1,0 +1,113 @@
+# NVIDIA userspace (driver libraries, nvidia-smi, nvidia-persistenced,
+# nvidia-modprobe, Vulkan/EGL/GBM ICDs) installed from the official .run
+# installer. Mirrors siderolabs/extensions nvidia-gpu/nvidia-container-toolkit/
+# nvidia-pkgs/production, with one difference: upstream unpacks the redist
+# .tar.xz and rebuilds the installer's flat "assets" layout by hand; the .run
+# payload (sh nvidia.run --extract-only) is already in that layout, so we run
+# nvidia-installer directly on it.
+#
+# Firmware is deliberately NOT installed here (nvidia-open-firmware owns
+# /usr/lib/firmware/nvidia/<version>); kernel modules come from
+# nvidia-open-modules. This stage depends on the glibc extension image because
+# nvidia-installer and every NVIDIA userspace binary are glibc-linked and the
+# Talos base is musl.
+name: nvidia-open-pkgs
+variant: scratch
+shell: /bin/bash
+install:
+  - bash
+dependencies:
+  - image: "cgr.dev/chainguard/wolfi-base@{{ .WOLFI_BASE_REF }}"
+  - image: "{{ .GLIBC_IMAGE }}"
+steps:
+  - sources:
+      # {{ if eq .ARCH "aarch64" }} This in fact is YAML comment, but Go templating instruction is evaluated by bldr
+      - url: https://download.nvidia.com/XFree86/Linux-aarch64/{{ .NVIDIA_DRIVER_VERSION }}/NVIDIA-Linux-aarch64-{{ .NVIDIA_DRIVER_VERSION }}.run
+        destination: nvidia.run
+        sha256: "{{ .NVIDIA_RUN_ARM64_SHA256 }}"
+        sha512: "{{ .NVIDIA_RUN_ARM64_SHA512 }}"
+      # {{ else }} This in fact is YAML comment, but Go templating instruction is evaluated by bldr
+      - url: https://download.nvidia.com/XFree86/Linux-x86_64/{{ .NVIDIA_DRIVER_VERSION }}/NVIDIA-Linux-x86_64-{{ .NVIDIA_DRIVER_VERSION }}.run
+        destination: nvidia.run
+        sha256: "{{ .NVIDIA_RUN_AMD64_SHA256 }}"
+        sha512: "{{ .NVIDIA_RUN_AMD64_SHA512 }}"
+    # {{ end }} This in fact is YAML comment, but Go templating instruction is evaluated by bldr
+    prepare:
+      - |
+        # the nvidia installer validates these packages are installed
+        ln -s /bin/true /bin/modprobe
+        ln -s /bin/true /bin/rmmod
+        ln -s /bin/true /bin/lsmod
+        ln -s /bin/true /bin/depmod
+      - |
+        # unpack the makeself archive only; performs no installation
+        sh nvidia.run --extract-only --target /nvidia-driver
+    install:
+      - |
+        cd /nvidia-driver
+
+        ./nvidia-installer --silent \
+          --opengl-prefix=/rootfs/usr/local \
+          --utility-prefix=/rootfs/usr/local \
+          --documentation-prefix=/rootfs/usr/local \
+          --glvnd-egl-config-path=/rootfs/usr/share/glvnd/egl_vendor.d \
+          --egl-external-platform-config-path=/rootfs/usr/share/egl/egl_external_platform.d \
+          --x-prefix=/rootfs/usr/local \
+          --x-module-path=/rootfs/usr/local/lib/xorg/modules \
+          --no-rpms \
+          --no-kernel-modules \
+          --log-file-name=/tmp/nvidia-installer.log \
+          --no-distro-scripts \
+          --no-wine-files \
+          --no-kernel-module-source \
+          --no-check-for-alternate-installs \
+          --no-nouveau-check \
+          --allow-installation-with-running-driver \
+          --override-file-type-destination=OPENGL_DATA:/rootfs/usr/local/share/nvidia \
+          --override-file-type-destination=VULKAN_ICD_JSON:/rootfs/etc/vulkan/icd.d \
+          --override-file-type-destination=VULKANSC_ICD_JSON:/rootfs/etc/vulkansc/icd.d \
+          --override-file-type-destination=NVIDIA_MODPROBE:/rootfs/usr/local/bin \
+          --override-file-type-destination=FIRMWARE:/tmp/discard-firmware \
+          --no-systemd \
+          # {{ if eq .ARCH "x86_64" }}--no-install-compat32-libs{{ end }}
+
+        # firmware belongs to nvidia-open-firmware; the installer has no
+        # --no-firmware flag, so it was redirected to /tmp and is dropped here
+        rm -rf /tmp/discard-firmware
+        test ! -e /rootfs/usr/lib/firmware
+
+        mkdir -p /rootfs/usr/bin
+        ln -s /usr/local/bin/nvidia-smi /rootfs/usr/bin/nvidia-smi
+        ln -s /usr/local/bin/nvidia-modprobe /rootfs/usr/bin/nvidia-modprobe
+        ln -s /usr/local/bin/nvidia-pcc /rootfs/usr/bin/nvidia-pcc
+
+        # run ldconfig to update the cache (ldconfig comes from the glibc image)
+        /rootfs/usr/local/sbin/ldconfig -r /rootfs
+
+        mkdir -p /rootfs/usr/local/lib/containers/nvidia-persistenced \
+          /rootfs/usr/local/etc/containers \
+          /rootfs/usr/lib/udev/rules.d
+
+        cp /pkg/files/15-nvidia-device.rules /rootfs/usr/lib/udev/rules.d
+      - |
+        # Fix symlinks whose targets are rooted under /rootfs
+        find /rootfs -type l | while read -r link; do
+          target="$(readlink "${link}")"
+          if [[ "${target}" == /rootfs/* ]]; then
+            ln -sfn "${target#/rootfs}" "${link}"
+          fi
+        done
+    test:
+      - |
+        test -e /rootfs/usr/local/lib/libcuda.so.{{ .NVIDIA_DRIVER_VERSION }}
+        test -e /rootfs/usr/local/lib/libnvidia-ml.so.{{ .NVIDIA_DRIVER_VERSION }}
+        test -x /rootfs/usr/local/bin/nvidia-smi
+        test -x /rootfs/usr/local/bin/nvidia-persistenced
+        test -x /rootfs/usr/local/bin/nvidia-modprobe
+        test -e /rootfs/usr/lib/udev/rules.d/15-nvidia-device.rules
+        test ! -e /rootfs/usr/lib/firmware
+        # no symlink may still point under /rootfs
+        test "$(find /rootfs -type l -lname '/rootfs/*' | wc -l)" -eq 0
+finalize:
+  - from: /rootfs
+    to: /rootfs
