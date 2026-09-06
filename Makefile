@@ -1,6 +1,6 @@
 # talos-nvidia-open-extension build orchestration
 #
-# Two-phase build (see PLAN.md and README.md):
+# Two-phase build (see README.md):
 #
 #   1. make nvidia-open-latest-pkg
 #      Compiles the NVIDIA open GPU kernel modules against the Talos kernel
