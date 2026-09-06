@@ -53,7 +53,7 @@ make nvidia-open-modules nvidia-open-firmware PUSH=true REGISTRY=docker.io USERN
 make local-nvidia-open-modules DEST=_out
 
 # Discover the pkgs tag pinned by a Talos release (for the PKGS Makefile var)
-make talos-pkgs-version TALOS_VERSION=v1.13.5
+make talos-pkgs-version TALOS_VERSION=v1.13.8
 ```
 
 **Kernel source fallback:** cdn.kernel.org is currently functional, so the
@@ -119,6 +119,7 @@ a machine-config patch. Key points:
 
 | Extension version | Talos | Kernel | pkgs |
 |---|---|---|---|
+| 610.57.04-v1.13.8 | v1.13.8 | 6.18.42 | v1.13.0-55-gf677246 |
 | 610.43.03-v1.13.6 | v1.13.6 | 6.18.38 | v1.13.0-43-gd8c80cc |
 
 [siderolabs/extensions]: https://github.com/siderolabs/extensions
