@@ -159,7 +159,7 @@ jobs:
 
       - name: Build and push extension images
         run: |
-          make nvidia-open-modules nvidia-open-firmware \
+          make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit \
             REGISTRY="${REGISTRY}" \
             USERNAME="${USERNAME}" \
             PLATFORM=linux/amd64,linux/arm64 \

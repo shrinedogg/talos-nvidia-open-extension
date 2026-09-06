@@ -1,0 +1,10 @@
+version: v1alpha1
+metadata:
+  name: nvidia-open-toolkit
+  version: "{{ .VERSION }}"
+  author: shrinedogg
+  description: |
+    [{{ .TIER }}] NVIDIA userspace (driver libraries, nvidia-smi, nvidia-persistenced) and container toolkit for the nvidia-open-modules extension. Requires nvidia-open-modules and nvidia-open-firmware of the same driver version; do not install alongside siderolabs/nvidia-container-toolkit-*.
+  compatibility:
+    talos:
+      version: ">= v1.13.0"
