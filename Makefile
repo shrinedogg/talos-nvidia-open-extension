@@ -35,10 +35,10 @@ BUILD := docker buildx build
 # PKGS must be the pkgs tag pinned by the target Talos release, from:
 #   https://raw.githubusercontent.com/siderolabs/talos/$(TALOS_VERSION)/pkg/machinery/gendata/data/pkgs
 # TOOLS must match TOOLS_REV in the pinned siderolabs/pkgs Pkgfile.
-TALOS_VERSION ?= v1.13.6
-PKGS ?= v1.13.0-43-gd8c80cc
+TALOS_VERSION ?= v1.13.8
+PKGS ?= v1.13.0-55-gf677246
 PKGS_PREFIX ?= ghcr.io/siderolabs
-TOOLS ?= v1.13.0-7-gc58afd5
+TOOLS ?= v1.13.0-8-gc2844e6
 TOOLS_PREFIX ?= ghcr.io/siderolabs
 
 # Driver version single source of truth: vars.yaml
@@ -101,7 +101,7 @@ PKGS_DIR := $(BUILD_DIR)/pkgs
 # NOTE: re-pin KERNEL_SRC_* when bumping PKGS (download the snapshot,
 # shasum -a 256/512).
 KERNEL_SRC_FALLBACK ?= 0
-KERNEL_VERSION ?= 6.18.38
+KERNEL_VERSION ?= 6.18.42
 KERNEL_SRC_URL ?= https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/snapshot/linux-$(KERNEL_VERSION).tar.gz
 KERNEL_SRC_SHA256 ?= 8d6507a7299df162362517016f0939aa9f340d4c3672bcde3905449093405fd0
 KERNEL_SRC_SHA512 ?= aafac276bb6e3081717ded3817dd3eb68ed8d6eebb237cc50bfe6a6b86ac57c1f0528c70fe41ee4fc9fcf03ed3a90a03577864e2dbc56f16f287fce23ff0f5f3
