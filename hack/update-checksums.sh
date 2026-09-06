@@ -14,14 +14,18 @@ echo "==> NVIDIA_DRIVER_VERSION: ${VERSION}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-declare -A urls=(
-  [SRC]="https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/${VERSION}.tar.gz"
-  [RUN_AMD64]="https://download.nvidia.com/XFree86/Linux-x86_64/${VERSION}/NVIDIA-Linux-x86_64-${VERSION}.run"
-  [RUN_ARM64]="https://download.nvidia.com/XFree86/Linux-aarch64/${VERSION}/NVIDIA-Linux-aarch64-${VERSION}.run"
-)
+# bash 3.2 compatible (macOS /bin/bash): no associative arrays.
+url_for() {
+  case "$1" in
+    SRC)       echo "https://github.com/NVIDIA/open-gpu-kernel-modules/archive/refs/tags/${VERSION}.tar.gz" ;;
+    RUN_AMD64) echo "https://download.nvidia.com/XFree86/Linux-x86_64/${VERSION}/NVIDIA-Linux-x86_64-${VERSION}.run" ;;
+    RUN_ARM64) echo "https://download.nvidia.com/XFree86/Linux-aarch64/${VERSION}/NVIDIA-Linux-aarch64-${VERSION}.run" ;;
+    *) echo "unknown key: $1" >&2; exit 1 ;;
+  esac
+}
 
 for key in SRC RUN_AMD64 RUN_ARM64; do
-  url="${urls[$key]}"
+  url="$(url_for "${key}")"
   echo "==> downloading ${url}"
   curl -fL --retry 3 -o "${tmp}/${key}" "${url}"
 
