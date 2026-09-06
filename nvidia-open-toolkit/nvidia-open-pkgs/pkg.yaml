@@ -106,8 +106,14 @@ steps:
         test -x /rootfs/usr/local/bin/nvidia-modprobe
         test -e /rootfs/usr/lib/udev/rules.d/15-nvidia-device.rules
         test ! -e /rootfs/usr/lib/firmware
-        # no symlink may still point under /rootfs
-        test "$(find /rootfs -type l -lname '/rootfs/*' | wc -l)" -eq 0
+        # no symlink may still point under /rootfs (BusyBox find has no -lname,
+        # so this checks readlink output explicitly and fails loudly)
+        for link in $(find /rootfs -type l); do
+          case "$(readlink "${link}")" in
+            /rootfs/*) echo "FAIL: symlink ${link} points under /rootfs"; exit 1 ;;
+          esac
+        done
+        echo "symlink check OK"
 finalize:
   - from: /rootfs
     to: /rootfs
