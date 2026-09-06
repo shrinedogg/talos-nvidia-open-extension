@@ -16,7 +16,7 @@
 # 595.44.x) are marked prerelease on GitHub and must not be pinned.
 #
 # CAVEAT: userspace driver libs (nvidia-container-toolkit pairing) must match
-# this version exactly; see PLAN.md Phase 6.
+# this version exactly; see the nvidia-open-toolkit extension.
 
 # renovate: datasource=github-releases depName=NVIDIA/open-gpu-kernel-modules
 NVIDIA_DRIVER_VERSION: 610.57.04
@@ -30,3 +30,19 @@ NVIDIA_RUN_AMD64_SHA256: b2e935c66b83bb00c0c857bc8e0ee0fd52de9286b40c9cc1eec29a7
 NVIDIA_RUN_AMD64_SHA512: 4c9566625716ba7257ed2203dbbabfbc7a2dfdfc8bcb16678212ec809dc7ff470d12973ad86ce5f925b271d04239425f43088e8e591cb4ed7f77ec0c8612ffc0
 NVIDIA_RUN_ARM64_SHA256: 40279facc0429a93b0b8ec97bf59391a3d2207609894f8271b7253a14c3f8f9e
 NVIDIA_RUN_ARM64_SHA512: cbb632182f4096e715cf28605ca93964e7ad329b7ac5eeffc1bd9d9338606f7ffaa4267ee3fa0e92cf00f4a50b177498bcb053686e869464db0e80ddbf7b4ecd
+
+# --- userspace / container toolkit (nvidia-open-toolkit extension) ----------
+# renovate: datasource=github-releases depName=NVIDIA/nvidia-container-toolkit
+CONTAINER_TOOLKIT_VERSION: v1.19.1
+# commit of the tag above; the toolkit build embeds substr(0,7) as GIT_COMMIT
+CONTAINER_TOOLKIT_REF: 09ceee5dde66ba9ce25c7cc69b1ebd5e6e3266fa
+CONTAINER_TOOLKIT_SHA256: 9c391e1ea8b0b2285ce23a2083be830ffb4602d46d288d01ed6dd7d3fb29ae00
+CONTAINER_TOOLKIT_SHA512: 4524ab3813d7819b2249aec9b7af6f4053f2f7119ebf23dfa58c9566eafd29d1890183a3126030062cbd35944c388b4469a3493fb774ee96b43af15d0608b40e
+
+# glibc for the toolkit binaries and nvidia-installer (Talos base is musl).
+# Pinned to the glibc extension image siderolabs/extensions builds for the
+# same Talos release; must move with TALOS_VERSION.
+GLIBC_IMAGE: ghcr.io/siderolabs/glibc:2.43@sha256:598e7f65ee8e92e3647d79006eaebb4e48029d983f1b4d087909c710d1257774
+
+# renovate: datasource=docker versioning=docker depName=cgr.dev/chainguard/wolfi-base
+WOLFI_BASE_REF: sha256:02dab76bd852a70556b5b2002195c8a5fdab77d323c433bf6642aab080489795
