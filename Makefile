@@ -1,6 +1,6 @@
 # talos-nvidia-open-extension build orchestration
 #
-# Two-phase build (see PLAN.md and README.md):
+# Two-phase build (see README.md):
 #
 #   1. make nvidia-open-latest-pkg
 #      Compiles the NVIDIA open GPU kernel modules against the Talos kernel
@@ -43,10 +43,13 @@ TOOLS_PREFIX ?= ghcr.io/siderolabs
 
 # Driver version single source of truth: vars.yaml
 NVIDIA_DRIVER_VERSION := $(shell awk '/^NVIDIA_DRIVER_VERSION:/ {print $$2}' vars.yaml)
+CONTAINER_TOOLKIT_VERSION := $(shell awk '/^CONTAINER_TOOLKIT_VERSION:/ {print $$2}' vars.yaml)
 
 # Extension/image version convention: <driver-version>-<talos-version>
 TAG ?= $(TALOS_VERSION)
 VERSION := $(NVIDIA_DRIVER_VERSION)-$(TAG)
+# The toolkit is not kernel-bound: <driver-version>-<toolkit-version>
+TOOLKIT_VERSION := $(NVIDIA_DRIVER_VERSION)-$(CONTAINER_TOOLKIT_VERSION)
 
 PKG_IMAGE ?= $(REGISTRY)/$(USERNAME)/nvidia-open-latest-pkg:$(VERSION)
 
@@ -61,7 +64,7 @@ EXT_BUILD_ARGS += --build-arg=TOOLS=$(TOOLS)
 EXT_BUILD_ARGS += --build-arg=TOOLS_PREFIX=$(TOOLS_PREFIX)
 EXT_BUILD_ARGS += --build-arg=NVIDIA_PKG_IMAGE=$(PKG_IMAGE)
 
-TARGETS = nvidia-open-modules nvidia-open-firmware
+TARGETS = nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit
 
 .PHONY: all
 all: $(TARGETS)
@@ -132,12 +135,21 @@ nvidia-open-latest-pkg: overlay-sync ## Build (and PUSH=true to push) the kernel
 
 # --- Phase 2: extension images (this repo's bldr graph) -----------------------
 
-.PHONY: $(TARGETS)
-$(TARGETS): ## Build extension image (PUSH=true to push).
+.PHONY: nvidia-open-modules nvidia-open-firmware
+nvidia-open-modules nvidia-open-firmware: ## Build kernel-bound extension image (PUSH=true to push).
 	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
 		--file=Pkgfile \
 		--target=$@ \
 		--tag=$(REGISTRY)/$(USERNAME)/$@:$(VERSION) \
+		--output=type=image,push=$(PUSH) \
+		.
+
+.PHONY: nvidia-open-toolkit
+nvidia-open-toolkit: ## Build userspace/toolkit extension image, tagged <driver>-<toolkit> (PUSH=true to push).
+	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
+		--file=Pkgfile \
+		--target=$@ \
+		--tag=$(REGISTRY)/$(USERNAME)/$@:$(TOOLKIT_VERSION) \
 		--output=type=image,push=$(PUSH) \
 		.
 
@@ -162,6 +174,7 @@ catalog: ## Build/push extensions catalog (official + ours) for self-hosted Imag
 		--talos-version $(TALOS_VERSION) \
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-modules:$(VERSION) \
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-firmware:$(VERSION) \
+		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-toolkit:$(TOOLKIT_VERSION) \
 		--tag $(CATALOG_TAG) \
 		$(if $(MIRROR_NS),--mirror-namespace $(MIRROR_NS)) \
 		$(if $(filter true,$(PUSH)),--push) \

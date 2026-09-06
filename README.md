@@ -3,9 +3,12 @@
 Talos Linux system extensions shipping the **latest NVIDIA open GPU kernel
 modules**, built standalone from [siderolabs/extensions] so driver bumps don't
 wait on Sidero's release cadence. The open modules support **Turing or newer
-GPUs only** (GTX 16xx / RTX 20xx+, A-, H-, L-, B-series). Two images are
+GPUs only** (GTX 16xx / RTX 20xx+, A-, H-, L-, B-series). Three images are
 produced: `nvidia-open-modules` (kernel modules compiled against the Talos
-kernel) and `nvidia-open-firmware` (the matching GSP firmware).
+kernel), `nvidia-open-firmware` (the matching GSP firmware), and
+`nvidia-open-toolkit` (userspace driver libraries, `nvidia-smi`,
+`nvidia-persistenced` and the NVIDIA container toolkit, installed from the
+same `.run` installer).
 
 ## How it works
 
@@ -23,15 +26,21 @@ The build is two-phase:
    rebuilds the chain tools → kernel-prepare → kernel-build → nvidia modules —
    a full kernel compile, 30–60+ minutes per arch on a cold cache. The result
    is pushed to `<registry>/<username>/nvidia-open-latest-pkg`.
-2. **Extensions** — `make nvidia-open-modules nvidia-open-firmware` builds the
-   Talos system-extension images from this repo's bldr graph: the modules
-   extension repackages the pkg image from phase 1, and the firmware extension
-   extracts GSP firmware from NVIDIA's official `.run` installer (makeself
-   `--extract-only`; nothing is installed) into
-   `/usr/lib/firmware/nvidia/<version>/`.
+2. **Extensions** — `make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit`
+   builds the Talos system-extension images from this repo's bldr graph: the
+   modules extension repackages the pkg image from phase 1, the firmware
+   extension extracts GSP firmware from NVIDIA's official `.run` installer
+   (makeself `--extract-only`; nothing is installed) into
+   `/usr/lib/firmware/nvidia/<version>/`, and the toolkit extension runs the
+   `.run` installer's `nvidia-installer` against its rootfs with
+   `--no-kernel-modules` (libraries and tools under `/usr/local`), builds
+   `nvidia-container-toolkit` from source, and ships the `nvidia-persistenced`
+   and `nvidia-cdi-gen` Talos services.
 
-Image versions follow the convention `<driver-version>-<talos-version>`,
-e.g. `610.43.02-v1.13.5`.
+Kernel-bound images (modules, firmware) follow the convention
+`<driver-version>-<talos-version>`, e.g. `610.43.02-v1.13.5`. The toolkit is
+not kernel-bound and is versioned `<driver>-<toolkit>`, e.g.
+`610.57.04-v1.19.1`.
 
 ## Build
 
@@ -46,8 +55,8 @@ auth in the machine config). For CI, set the `DOCKERHUB_USERNAME` and
 # Phase 1: compile the kernel modules pkg (must be pushed — phase 2 pulls it)
 make nvidia-open-latest-pkg PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
 
-# Phase 2: build and push both extension images
-make nvidia-open-modules nvidia-open-firmware PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
+# Phase 2: build and push the extension images
+make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
 
 # Inspect an extension rootfs locally without pushing
 make local-nvidia-open-modules DEST=_out
@@ -85,9 +94,9 @@ by default.
 To bump the driver:
 
 1. Edit `NVIDIA_DRIVER_VERSION` in `vars.yaml`.
-2. Run `hack/update-checksums.sh` — downloads the source tarball and both
-   `.run` installers (~850 MB total) and recomputes all six checksums; NVIDIA
-   publishes none for these artifacts.
+2. Run `hack/update-checksums.sh` — downloads the source tarball, both
+   `.run` installers and the container-toolkit tarball (~850 MB total) and
+   recomputes all eight checksums; NVIDIA publishes none for these artifacts.
 
 To bump Talos, three Makefile pins move together:
 
@@ -95,6 +104,10 @@ To bump Talos, three Makefile pins move together:
 - `PKGS` — must equal the pkgs tag pinned by that Talos release, from
   `talos/pkg/machinery/gendata/data/pkgs` (`make talos-pkgs-version`).
 - `TOOLS` — must match `TOOLS_REV` in that pkgs tag's `Pkgfile`.
+
+Also re-pin `GLIBC_IMAGE` in `vars.yaml` from that release's bundle
+(`talosctl image talos-bundle <ver> | grep glibc`): the toolkit's glibc must
+match the glibc extension built for the same Talos release.
 
 ## Usage
 
@@ -108,19 +121,21 @@ a machine-config patch. Key points:
 - The modules extension blacklists the nvidia modules in `modprobe.d`, so they
   must be loaded explicitly via `machine.kernel.modules`: `nvidia`,
   `nvidia_uvm`, `nvidia_drm`, `nvidia_modeset`.
-- Userspace (nvidia-container-toolkit / driver libraries) must also match the
-  kernel-module driver version exactly. Since this repo intentionally runs
-  ahead of Sidero's pinned driver versions, their `nvidia-container-toolkit`
-  extension will generally **not** match — a matching userspace extension
-  built from the same `.run` installer is the planned follow-up (see
-  `_docs/PLAN.md` Phase 6).
+- All three extensions must be installed together, and `nvidia-open-modules`,
+  `nvidia-open-firmware` and `nvidia-open-toolkit` must carry the same driver
+  version. Do not install `siderolabs/nvidia-container-toolkit-*` or
+  `siderolabs/nvidia-open-gpu-kernel-modules-*` alongside them. The toolkit
+  extension registers the `nvidia` containerd runtime handler
+  (`/etc/cri/conf.d/10-nvidia-container-runtime.part`) and generates the CDI
+  spec at `/run/cdi/nvidia.yaml`; nodes need
+  `machine.sysctls: net.core.bpf_jit_harden: "1"` as with Sidero's toolkit.
 
 ## Compatibility
 
-| Extension version | Talos | Kernel | pkgs |
-|---|---|---|---|
-| 610.57.04-v1.13.8 | v1.13.8 | 6.18.42 | v1.13.0-55-gf677246 |
-| 610.43.03-v1.13.6 | v1.13.6 | 6.18.38 | v1.13.0-43-gd8c80cc |
+| Extension version | Talos | Kernel | pkgs | toolkit |
+|---|---|---|---|---|
+| 610.57.04-v1.13.8 | v1.13.8 | 6.18.42 | v1.13.0-55-gf677246 | 610.57.04-v1.19.1 |
+| 610.43.03-v1.13.6 | v1.13.6 | 6.18.38 | v1.13.0-43-gd8c80cc | n/a |
 
 [siderolabs/extensions]: https://github.com/siderolabs/extensions
 [siderolabs/pkgs]: https://github.com/siderolabs/pkgs

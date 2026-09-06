@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Renovate config for talos-nvidia-open-extension. Driver bumps track GitHub releases of NVIDIA/open-gpu-kernel-modules directly (we build modules from the source tarball and pull GSP firmware from the matching .run installer, so the redist-channel lag does not apply). The github-releases datasource skips prereleases by default, which excludes the 595.44.x Vulkan-beta releases. After a driver bump merges, run hack/update-checksums.sh to recompute all six checksums in vars.yaml (NVIDIA publishes none for these artifacts).",
+  "description": "Renovate config for talos-nvidia-open-extension. Driver bumps track GitHub releases of NVIDIA/open-gpu-kernel-modules directly (we build modules from the source tarball and pull GSP firmware from the matching .run installer, so the redist-channel lag does not apply). The github-releases datasource skips prereleases by default, which excludes the 595.44.x Vulkan-beta releases. After a driver or toolkit bump merges, run hack/update-checksums.sh to recompute all eight checksums in vars.yaml (NVIDIA publishes none for these artifacts). After a CONTAINER_TOOLKIT_VERSION bump, update CONTAINER_TOOLKIT_REF by hand to the tag's commit (`gh api repos/NVIDIA/nvidia-container-toolkit/git/ref/tags/<ver> --jq .object.sha`, dereference annotated tags).",
   "extends": [
     ":dependencyDashboard",
     ":semanticCommitScopeDisabled",
@@ -14,6 +14,15 @@
       "managerFilePatterns": ["/(^|/)vars\\.yaml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?)(?:\\s+extractVersion=(?<extractVersion>.+?))?(?:\\s+versioning=(?<versioning>.+?))?\\s+depName=(?<depName>.+?)?\\s.*_(?:version|VERSION):\\s+(?<currentValue>.*)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "wolfi-base digest pin (WOLFI_BASE_REF) in vars.yaml, used by the glibc-linked toolkit build stages. Tracked as the latest digest of cgr.dev/chainguard/wolfi-base; currentValueTemplate is scoped to this manager only so it does not override the driver/toolkit version captures in the manager above.",
+      "currentValueTemplate": "latest",
+      "managerFilePatterns": ["/(^|/)vars\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?)(?:\\s+versioning=(?<versioning>.+?))?\\s+depName=(?<depName>.+?)\\s.*WOLFI_BASE_REF:\\s+(?<currentDigest>sha256:[0-9a-f]+)"
       ]
     },
     {
@@ -33,6 +42,16 @@
       "description": "NVIDIA driver versions are not semver (e.g. 610.43.02 or 595.84); use the same regex versioning siderolabs/pkgs applies to its nvidia driver packages.",
       "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.?(?<patch>\\d+)?$",
       "matchPackageNames": ["NVIDIA/open-gpu-kernel-modules"]
+    },
+    {
+      "description": "Container toolkit bumps are independent of driver bumps; group them so a toolkit PR never touches NVIDIA_DRIVER_VERSION.",
+      "matchPackageNames": ["NVIDIA/nvidia-container-toolkit"],
+      "groupName": "nvidia-container-toolkit"
+    },
+    {
+      "description": "wolfi-base digest pin used by the glibc-linked build stages.",
+      "matchPackageNames": ["cgr.dev/chainguard/wolfi-base"],
+      "groupName": "wolfi-base"
     }
   ],
   "separateMajorMinor": false

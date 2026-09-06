@@ -1,0 +1,5 @@
+# driver version + container toolkit version, same convention as
+# siderolabs/nvidia-container-toolkit-*; must be paired with nvidia-open-modules
+# and nvidia-open-firmware of the same NVIDIA_DRIVER_VERSION
+VERSION: "{{ .NVIDIA_DRIVER_VERSION }}-{{ .CONTAINER_TOOLKIT_VERSION }}"
+TIER: "community"
