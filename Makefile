@@ -144,9 +144,13 @@ overlay-sync: $(PKGS_DIR) ## Sync overlay/, vars.yaml, the signature verifier an
 	cp hack/verify-module-signatures.sh $(PKGS_DIR)/nvidia-open-latest/verify-module-signatures.sh
 	hack/module-signing-key.sh ensure $(MODULE_SIG_KEY_FILE)
 	cp $(MODULE_SIG_KEY_FILE) $(PKGS_DIR)/kernel/build/certs/module-signing-key.pem
-	sed -i.bak 's|^CONFIG_MODULE_SIG_KEY=.*|CONFIG_MODULE_SIG_KEY="certs/module-signing-key.pem"|' $(PKGS_DIR)/kernel/build/config-amd64
-	rm -f $(PKGS_DIR)/kernel/build/config-amd64.bak
-	grep -q '^CONFIG_MODULE_SIG_KEY="certs/module-signing-key.pem"$$' $(PKGS_DIR)/kernel/build/config-amd64
+	@# kernel-build selects config-$${CARCH} (amd64 or arm64); rewrite both so
+	@# every supported platform signs with our key.
+	for cfg in $(PKGS_DIR)/kernel/build/config-amd64 $(PKGS_DIR)/kernel/build/config-arm64; do \
+		sed -i.bak 's|^CONFIG_MODULE_SIG_KEY=.*|CONFIG_MODULE_SIG_KEY="certs/module-signing-key.pem"|' $$cfg; \
+		rm -f $$cfg.bak; \
+		grep -q '^CONFIG_MODULE_SIG_KEY="certs/module-signing-key.pem"$$' $$cfg || exit 1; \
+	done
 	@if hack/module-signing-key.sh matches $(MODULE_SIG_KEY_FILE) $(MODULE_SIG_CERT); then \
 		cp $(MODULE_SIG_CERT) $(PKGS_DIR)/nvidia-open-latest/expected-module-signing.crt; \
 		echo "==> signing key matches $(MODULE_SIG_CERT) (release key)"; \
