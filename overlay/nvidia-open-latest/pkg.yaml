@@ -3,6 +3,9 @@
 # (see Makefile: overlay-sync) so `stage: kernel-build` and the LLVM toolchain
 # vars resolve inside that build graph.
 #
+# Signing: kernel-build signs modules with certs/module-signing-key.pem (placed
+# by `make overlay-sync`); the test step verifies each .ko against the
+# certificate the kernel embeds, not just that a signature blob is present.
 # Unlike siderolabs/pkgs (which builds from NVIDIA's redist archive, shipping
 # precompiled nv-kernel.o_binary blobs), the GitHub tarball compiles the full
 # OS-independent resource manager from src/ via the repo's top-level Makefile.
@@ -51,8 +54,17 @@ steps:
         make LD=ld.lld OBJDUMP=llvm-objdump -j $(nproc) modules_install SYSSRC=/src INSTALL_MOD_PATH=/rootfs/usr INSTALL_MOD_STRIP=1
     test:
       - |
-        # https://www.kernel.org/doc/html/v4.15/admin-guide/module-signing.html#signed-modules-and-stripping
-        find /rootfs/usr/lib/modules -name '*.ko' -exec grep -FL '~Module signature appended~' {} \+
+        # Every module must verify against the certificate the kernel in this
+        # graph embeds (certs/signing_key.x509 is extracted by the kernel build
+        # from CONFIG_MODULE_SIG_KEY). A signature by any other key means the
+        # module will be rejected at insmod with "key was rejected by service".
+        openssl x509 -inform DER -in /src/certs/signing_key.x509 -out /tmp/kernel-module-signing.crt
+        /pkg/verify-module-signatures.sh /rootfs/usr/lib/modules /tmp/kernel-module-signing.crt
+      - |
+        # Release builds: the kernel key must be the committed release certificate.
+        if [ -f /pkg/expected-module-signing.crt ]; then
+          openssl x509 -in /pkg/expected-module-signing.crt -outform DER | cmp - /src/certs/signing_key.x509
+        fi
       - |
         fhs-validator /rootfs
 finalize:

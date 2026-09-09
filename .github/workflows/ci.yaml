@@ -2,17 +2,17 @@
 #
 # Behavior by event:
 #
-#   pull_request       Build the kernel-modules pkg only, without pushing.
-#                      The "extensions" job is skipped on PRs: it must PULL the
-#                      pkg image built in phase 1 from ghcr.io, and PR builds
-#                      don't push it (GITHUB_TOKEN on fork PRs can't write to
-#                      packages anyway). This means extension repackaging is
-#                      only exercised on push/tag/dispatch events — a known,
-#                      accepted limitation chosen over running a local registry
-#                      service container.
+#   pull_request       Run the shell tests, then build the kernel, the
+#                      kernel-modules pkg and the zfs pkg without pushing.
+#                      The "extensions" and later jobs are skipped on PRs:
+#                      they must PULL the images built in phase 1, and PR
+#                      builds don't push them. This means extension
+#                      repackaging is only exercised on push/tag/dispatch
+#                      events — a known, accepted limitation chosen over
+#                      running a local registry service container.
 #
-#   push (main / tag)  Build + push the amd64 pkg image, then build + push the
-#   workflow_dispatch  extensions.
+#   push (main / tag)  Build + push kernel, nvidia-open-latest-pkg and
+#   workflow_dispatch  zfs-pkg, then the extensions.
 #
 # Tag trigger: release tags follow <driver-version>-<talos-version>
 # (e.g. 595.71.05-v1.13.5), which has no common "v*" prefix, so we trigger on
@@ -41,15 +41,23 @@ concurrency:
 #   DOCKERHUB_TOKEN    - an access token from hub.docker.com/settings/security
 env:
   REGISTRY: docker.io
-  USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'shrinedogg' }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test
+
   # Phase 1: NVIDIA open kernel modules compiled against the Talos kernel
   # inside the pinned siderolabs/pkgs checkout. Full kernel compile on a cold
   # cache: 60+ minutes, hence the generous timeout. amd64 only: the cluster
   # has no arm machines and a kernel build under QEMU emulation is
   # impractically slow.
-  pkg:
+  kernel-pkgs:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -77,6 +85,28 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Free runner disk (kernel + NVIDIA + zfs builds need ~40 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af
+          df -h /
+
+      # The release key signs the kernel and every module; without it the
+      # build still compiles (throwaway key) but nothing may be pushed.
+      - name: Install the module signing key
+        if: github.event_name != 'pull_request'
+        env:
+          MODULE_SIGNING_KEY: ${{ secrets.MODULE_SIGNING_KEY }}
+        run: |
+          if [ -z "${MODULE_SIGNING_KEY}" ]; then
+            echo "::error::MODULE_SIGNING_KEY repository secret is not set (PEM with private key and certificate, see README 'Kernel and module signing')."
+            exit 1
+          fi
+          mkdir -p "${HOME}/.cache/talos-nvidia-open-extension"
+          (umask 077; printf '%s\n' "${MODULE_SIGNING_KEY}" > "${HOME}/.cache/talos-nvidia-open-extension/module-signing-key.pem")
+          hack/module-signing-key.sh matches "${HOME}/.cache/talos-nvidia-open-extension/module-signing-key.pem" certs/module-signing.crt \
+            || { echo "::error::MODULE_SIGNING_KEY does not match certs/module-signing.crt"; exit 1; }
+
       - name: Determine version
         id: version
         run: |
@@ -89,9 +119,9 @@ jobs:
       # checksums pinned in the siderolabs/pkgs Pkgfile. The git.kernel.org
       # snapshot fallback (=1) remains available for networks where kernel.org
       # tarball downloads are blocked.
-      - name: Build kernel-modules pkg (push on non-PR events)
+      - name: Build kernel, NVIDIA modules pkg and zfs pkg (push on non-PR events)
         run: |
-          make nvidia-open-latest-pkg \
+          make kernel nvidia-open-latest-pkg zfs-pkg \
             REGISTRY="${REGISTRY}" \
             USERNAME="${USERNAME}" \
             PLATFORM=linux/amd64 \
@@ -101,7 +131,7 @@ jobs:
   # single-platform build produces the amd64 extension images.
   extensions:
     if: github.event_name != 'pull_request'
-    needs: pkg
+    needs: kernel-pkgs
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

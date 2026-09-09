@@ -17,6 +17,11 @@ steps:
         cp -R /usr/lib/modules/* /rootfs/usr/lib/modules
     test:
       - |
+        # The modules must be signed by the key whose certificate this repo
+        # ships in certs/module-signing.crt, i.e. the key our published kernel
+        # embeds. Anything else cannot load under module.sig_enforce=1.
+        /pkg/files/verify-module-signatures.sh /rootfs/usr/lib/modules /pkg/files/module-signing.crt
+      - |
         mkdir -p /extensions-validator-rootfs
         cp -r /rootfs/ /extensions-validator-rootfs/rootfs
         cp /pkg/manifest.yaml /extensions-validator-rootfs/manifest.yaml

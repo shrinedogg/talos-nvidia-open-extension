@@ -5,6 +5,8 @@ metadata:
   author: shrinedogg
   description: |
     [{{ .TIER }}] Latest NVIDIA open GPU kernel modules built against a specific Talos kernel.
+    Signed with the talos-nvidia-open-extension module signing key: loads only on the
+    kernel published by the same repo (docker.io/shrinedogg/kernel, imager), not on a stock Talos kernel.
   compatibility:
     talos:
-      version: ">= v1.13.0"
+      version: ">= v1.14.0"

@@ -88,6 +88,26 @@ endif
 # under the repo root would leak the whole pkgs graph into ours.
 BUILD_DIR ?= $(HOME)/.cache/talos-nvidia-open-extension
 PKGS_DIR := $(BUILD_DIR)/pkgs
+TALOS_DIR := $(BUILD_DIR)/talos
+EXTENSIONS_DIR := $(BUILD_DIR)/extensions
+
+# --- kernel module signing -----------------------------------------------------
+# The Talos kernel is built with CONFIG_MODULE_SIG_ALL=y and boots with
+# module.sig_enforce=1, so a module only loads if the kernel embeds the
+# certificate that signed it. Upstream generates certs/signing_key.pem fresh in
+# every kernel-build and never publishes it, so modules built here can never
+# load on a stock Talos kernel (issue #11). Instead this repo owns the key:
+# overlay-sync drops MODULE_SIG_KEY_FILE into the kernel-build pkg and points
+# CONFIG_MODULE_SIG_KEY at it, and the `kernel` target publishes the resulting
+# kernel so kernel and modules share certs/module-signing.crt.
+#
+# MODULE_SIG_KEY_FILE: PEM holding private key + certificate (GitHub secret
+# MODULE_SIGNING_KEY in CI). Without it a throwaway key is generated, which is
+# fine for compile checks; PUSH=true refuses a key that does not match
+# certs/module-signing.crt.
+MODULE_SIG_KEY_FILE ?= $(BUILD_DIR)/module-signing-key.pem
+MODULE_SIG_CERT := certs/module-signing.crt
+KERNEL_IMAGE ?= $(REGISTRY)/$(USERNAME)/kernel:$(PKGS)
 
 # --- kernel source fallback ---------------------------------------------------
 # cdn.kernel.org is currently functional (verified 2026-09-06), so
@@ -114,12 +134,32 @@ $(PKGS_DIR):
 	git -C $@ checkout $(PKGS_REF)
 
 .PHONY: overlay-sync
-overlay-sync: $(PKGS_DIR) ## Sync overlay/ pkg + vars.yaml into the pkgs checkout.
+overlay-sync: $(PKGS_DIR) ## Sync overlay/, vars.yaml, the signature verifier and the module signing key into the pkgs checkout.
 	git -C $(PKGS_DIR) checkout -- .
+	git -C $(PKGS_DIR) clean -fdq
 	git -C $(PKGS_DIR) checkout $(PKGS_REF)
 	rm -rf $(PKGS_DIR)/nvidia-open-latest
 	cp -R overlay/nvidia-open-latest $(PKGS_DIR)/nvidia-open-latest
 	cp vars.yaml $(PKGS_DIR)/nvidia-open-latest/vars.yaml
+	cp hack/verify-module-signatures.sh $(PKGS_DIR)/nvidia-open-latest/verify-module-signatures.sh
+	hack/module-signing-key.sh ensure $(MODULE_SIG_KEY_FILE)
+	cp $(MODULE_SIG_KEY_FILE) $(PKGS_DIR)/kernel/build/certs/module-signing-key.pem
+	@# kernel-build selects config-$${CARCH} (amd64 or arm64); rewrite both so
+	@# every supported platform signs with our key.
+	for cfg in $(PKGS_DIR)/kernel/build/config-amd64 $(PKGS_DIR)/kernel/build/config-arm64; do \
+		sed -i.bak 's|^CONFIG_MODULE_SIG_KEY=.*|CONFIG_MODULE_SIG_KEY="certs/module-signing-key.pem"|' $$cfg; \
+		rm -f $$cfg.bak; \
+		grep -q '^CONFIG_MODULE_SIG_KEY="certs/module-signing-key.pem"$$' $$cfg || exit 1; \
+	done
+	@if hack/module-signing-key.sh matches $(MODULE_SIG_KEY_FILE) $(MODULE_SIG_CERT); then \
+		cp $(MODULE_SIG_CERT) $(PKGS_DIR)/nvidia-open-latest/expected-module-signing.crt; \
+		echo "==> signing key matches $(MODULE_SIG_CERT) (release key)"; \
+	elif [ "$(PUSH)" = "true" ]; then \
+		echo "error: refusing PUSH=true with a signing key that does not match $(MODULE_SIG_CERT)" >&2; \
+		exit 1; \
+	else \
+		echo "WARNING: throwaway signing key; the resulting kernel and modules will not match $(MODULE_SIG_CERT)"; \
+	fi
 ifeq ($(KERNEL_SRC_FALLBACK),1)
 	hack/patch-kernel-source.sh $(PKGS_DIR) $(KERNEL_SRC_URL) $(KERNEL_SRC_SHA256) $(KERNEL_SRC_SHA512)
 endif
@@ -133,10 +173,33 @@ nvidia-open-latest-pkg: overlay-sync ## Build (and PUSH=true to push) the kernel
 		--output=type=image,push=$(PUSH) \
 		$(PKGS_DIR)
 
+# The kernel that trusts our modules, plus every other kernel-module pkg the
+# cluster's extensions need (zfs). Tagged with the pkgs tag, mirroring
+# ghcr.io/siderolabs/<name>:$(PKGS), so the same PKGS pin selects our images
+# when PKGS_PREFIX is pointed at $(REGISTRY)/$(USERNAME).
+.PHONY: kernel zfs-pkg
+kernel zfs-pkg: overlay-sync ## Build (PUSH=true to push) a pkgs-graph image signed with our key, tagged $(PKGS).
+	$(BUILD) $(COMMON_ARGS) \
+		--file=$(PKGS_DIR)/Pkgfile \
+		--target=$@ \
+		--tag=$(REGISTRY)/$(USERNAME)/$@:$(PKGS) \
+		--output=type=image,push=$(PUSH) \
+		$(PKGS_DIR)
+
 # --- Phase 2: extension images (this repo's bldr graph) -----------------------
 
+# bldr only sees the pkg directory as /pkg, so copy the verifier and the
+# release certificate next to the extension recipe (both gitignored).
+MODULES_FILES := nvidia-open-modules/files/verify-module-signatures.sh nvidia-open-modules/files/module-signing.crt
+
+nvidia-open-modules/files/verify-module-signatures.sh: hack/verify-module-signatures.sh
+	cp $< $@
+
+nvidia-open-modules/files/module-signing.crt: $(MODULE_SIG_CERT)
+	cp $< $@
+
 .PHONY: nvidia-open-modules nvidia-open-firmware
-nvidia-open-modules nvidia-open-firmware: ## Build kernel-bound extension image (PUSH=true to push).
+nvidia-open-modules nvidia-open-firmware: $(MODULES_FILES) ## Build kernel-bound extension image (PUSH=true to push).
 	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
 		--file=Pkgfile \
 		--target=$@ \
@@ -153,7 +216,7 @@ nvidia-open-toolkit: ## Build userspace/toolkit extension image, tagged <driver>
 		--output=type=image,push=$(PUSH) \
 		.
 
-local-%: ## Build extension and export rootfs to $(DEST)/<name> for inspection.
+local-%: $(MODULES_FILES) ## Build extension and export rootfs to $(DEST)/<name> for inspection.
 	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
 		--file=Pkgfile \
 		--target=$* \
@@ -183,6 +246,10 @@ catalog: ## Build/push extensions catalog (official + ours) for self-hosted Imag
 .PHONY: update-checksums
 update-checksums: ## Refresh NVIDIA archive checksums in vars.yaml.
 	hack/update-checksums.sh
+
+.PHONY: test
+test: ## Run the shell script tests under hack/test.
+	@for t in hack/test/*_test.sh; do bash "$$t" || exit 1; done
 
 .PHONY: talos-pkgs-version
 talos-pkgs-version: ## Print the pkgs tag pinned by $(TALOS_VERSION).

@@ -25,7 +25,9 @@ The build is two-phase:
    this is what lets us track GA releases the moment they're tagged. BuildKit
    rebuilds the chain tools → kernel-prepare → kernel-build → nvidia modules —
    a full kernel compile, 60+ minutes on a cold cache. The result
-   is pushed to `<registry>/<username>/nvidia-open-latest-pkg`.
+   is pushed to `<registry>/<username>/nvidia-open-latest-pkg`. The same
+   graph also publishes the kernel (`kernel:<PKGS>`) and zfs
+   (`zfs-pkg:<PKGS>`) images — see [Kernel and module signing](#kernel-and-module-signing).
 2. **Extensions** — `make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit`
    builds the Talos system-extension images from this repo's bldr graph: the
    modules extension repackages the pkg image from phase 1, the firmware
@@ -48,12 +50,14 @@ Prerequisites: Docker with buildx, and an account on any OCI registry
 (Docker Hub is the default — `docker login` first; ghcr.io or a local
 registry work too via `REGISTRY=`/`USERNAME=`). The repositories must be
 public for Talos nodes to pull the extension images (or configure registry
-auth in the machine config). For CI, set the `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN` repository secrets.
+auth in the machine config). For CI, set the `DOCKERHUB_USERNAME`,
+`DOCKERHUB_TOKEN` and `MODULE_SIGNING_KEY` repository secrets (the latter is
+the module signing key — see below).
 
 ```sh
-# Phase 1: compile the kernel modules pkg (must be pushed — phase 2 pulls it)
-make nvidia-open-latest-pkg PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
+# Phase 1: compile the kernel, the kernel modules pkg and zfs-pkg
+# (must be pushed — phase 2 and the nodes pull them)
+make kernel nvidia-open-latest-pkg zfs-pkg PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
 
 # Phase 2: build and push the extension images
 make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
@@ -76,8 +80,44 @@ distribution went down globally for a period in 2026-07. Re-pin
 
 **Build host note:** the phase-1 kernel compile targets `linux/amd64` by
 default; on an Apple Silicon Mac that runs under emulation and takes hours.
-Prefer the GitHub Actions `pkg` job (native amd64 runner) for full
+Prefer the GitHub Actions `kernel-pkgs` job (native amd64 runner) for full
 builds, and keep local builds for validation.
+
+## Kernel and module signing
+
+Talos builds its kernel with `CONFIG_MODULE_SIG_ALL=y` and boots with
+`module.sig_enforce=1`, so a module only loads if the kernel embeds the
+certificate that signed it. Upstream siderolabs/pkgs generates a fresh
+signing key in every `kernel-build` and never publishes it, so modules built
+here cannot load on a stock Talos kernel
+([issue #11](https://github.com/shrinedogg/talos-nvidia-open-extension/issues/11)).
+This repo therefore owns the signing key: the public certificate is
+committed at `certs/module-signing.crt`, and the matching private key is a
+PEM (private key plus certificate, generated with
+`hack/module-signing-key.sh generate`) that must never be committed —
+`.gitignore` excludes `*.pem`.
+
+- **CI releases:** store the PEM as the `MODULE_SIGNING_KEY` repository
+  secret. The workflow installs it and fails before any build if it is
+  missing or does not match `certs/module-signing.crt`.
+- **Local builds:** put the PEM at
+  `~/.cache/talos-nvidia-open-extension/module-signing-key.pem` or point
+  `MODULE_SIG_KEY_FILE=<path>` at it. Without it, `make` generates a
+  throwaway key, which is fine for compile checks; `PUSH=true` refuses to
+  push anything signed by a key that does not match
+  `certs/module-signing.crt`.
+- `make overlay-sync` drops the key into the pkgs `kernel-build` and points
+  `CONFIG_MODULE_SIG_KEY` at it (both the amd64 and arm64 kernel configs).
+  Every built `.ko` is verified against the certificate the kernel embeds,
+  and release builds additionally compare that certificate with
+  `certs/module-signing.crt` (`hack/verify-module-signatures.sh`).
+
+The same phase-1 graph publishes the signed kernel as
+`<registry>/<username>/kernel:<PKGS>` and zfs as
+`<registry>/<username>/zfs-pkg:<PKGS>`, mirroring
+`ghcr.io/siderolabs/<name>:<PKGS>`, so the same `PKGS` pin selects these
+images when `PKGS_PREFIX` is pointed at `<registry>/<username>`. The
+modules only load on a node that boots this kernel.
 
 ## Version pinning
 
