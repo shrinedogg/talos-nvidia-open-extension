@@ -184,8 +184,18 @@ kernel zfs-pkg: overlay-sync ## Build (PUSH=true to push) a pkgs-graph image sig
 
 # --- Phase 2: extension images (this repo's bldr graph) -----------------------
 
+# bldr only sees the pkg directory as /pkg, so copy the verifier and the
+# release certificate next to the extension recipe (both gitignored).
+MODULES_FILES := nvidia-open-modules/files/verify-module-signatures.sh nvidia-open-modules/files/module-signing.crt
+
+nvidia-open-modules/files/verify-module-signatures.sh: hack/verify-module-signatures.sh
+	cp $< $@
+
+nvidia-open-modules/files/module-signing.crt: $(MODULE_SIG_CERT)
+	cp $< $@
+
 .PHONY: nvidia-open-modules nvidia-open-firmware
-nvidia-open-modules nvidia-open-firmware: ## Build kernel-bound extension image (PUSH=true to push).
+nvidia-open-modules nvidia-open-firmware: $(MODULES_FILES) ## Build kernel-bound extension image (PUSH=true to push).
 	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
 		--file=Pkgfile \
 		--target=$@ \
@@ -202,7 +212,7 @@ nvidia-open-toolkit: ## Build userspace/toolkit extension image, tagged <driver>
 		--output=type=image,push=$(PUSH) \
 		.
 
-local-%: ## Build extension and export rootfs to $(DEST)/<name> for inspection.
+local-%: $(MODULES_FILES) ## Build extension and export rootfs to $(DEST)/<name> for inspection.
 	$(BUILD) $(COMMON_ARGS) $(EXT_BUILD_ARGS) \
 		--file=Pkgfile \
 		--target=$* \
