@@ -24,7 +24,7 @@ The build is two-phase:
    manager under `src/`, which redist archives ship as precompiled blobs) —
    this is what lets us track GA releases the moment they're tagged. BuildKit
    rebuilds the chain tools → kernel-prepare → kernel-build → nvidia modules —
-   a full kernel compile, 30–60+ minutes per arch on a cold cache. The result
+   a full kernel compile, 60+ minutes on a cold cache. The result
    is pushed to `<registry>/<username>/nvidia-open-latest-pkg`.
 2. **Extensions** — `make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit`
    builds the Talos system-extension images from this repo's bldr graph: the
@@ -62,7 +62,7 @@ make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit PUSH=true REGI
 make local-nvidia-open-modules DEST=_out
 
 # Discover the pkgs tag pinned by a Talos release (for the PKGS Makefile var)
-make talos-pkgs-version TALOS_VERSION=v1.13.8
+make talos-pkgs-version TALOS_VERSION=v1.14.0
 ```
 
 **Kernel source fallback:** cdn.kernel.org is currently functional, so the
@@ -76,7 +76,7 @@ distribution went down globally for a period in 2026-07. Re-pin
 
 **Build host note:** the phase-1 kernel compile targets `linux/amd64` by
 default; on an Apple Silicon Mac that runs under emulation and takes hours.
-Prefer the GitHub Actions `pkg` job (native amd64/arm64 runners) for full
+Prefer the GitHub Actions `pkg` job (native amd64 runner) for full
 builds, and keep local builds for validation.
 
 ## Version pinning
@@ -134,6 +134,7 @@ a machine-config patch. Key points:
 
 | Extension version | Talos | Kernel | pkgs | toolkit |
 |---|---|---|---|---|
+| 610.57.04-v1.14.0 | v1.14.0 | 6.18.48 | v1.14.0-15-g2f03590 | 610.57.04-v1.19.1 |
 | 610.57.04-v1.13.8 | v1.13.8 | 6.18.42 | v1.13.0-55-gf677246 | 610.57.04-v1.19.1 |
 | 610.43.03-v1.13.6 | v1.13.6 | 6.18.38 | v1.13.0-43-gd8c80cc | n/a |
 
