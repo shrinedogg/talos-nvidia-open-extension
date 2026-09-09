@@ -10,7 +10,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 "$keys" generate "$tmp/a.pem" "$tmp/a.crt" > /dev/null
 [ "$(grep -c 'BEGIN' "$tmp/a.pem")" = 2 ] || fail "key.pem must hold private key and certificate"
-[ "$(stat -f %Lp "$tmp/a.pem" 2>/dev/null || stat -c %a "$tmp/a.pem")" = 600 ] || fail "key.pem must be mode 0600"
+[ "$(stat -c %a "$tmp/a.pem" 2>/dev/null || stat -f %Lp "$tmp/a.pem")" = 600 ] || fail "key.pem must be mode 0600"
 openssl x509 -in "$tmp/a.crt" -noout -subject | grep -q 'talos-nvidia-open-extension' || fail "cert subject"
 "$keys" matches "$tmp/a.pem" "$tmp/a.crt" || fail "generated key must match its cert"
 
