@@ -280,6 +280,7 @@ catalog: ## Build/push extensions catalog (official + ours) for self-hosted Imag
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-modules:$(VERSION) \
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-firmware:$(VERSION) \
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-toolkit:$(TOOLKIT_VERSION) \
+		--rebuilt-namespace $(REGISTRY)/$(USERNAME) $(foreach e,$(SIDERO_EXTENSIONS),--rebuilt $(e)) \
 		--tag $(CATALOG_TAG) \
 		$(if $(MIRROR_NS),--mirror-namespace $(MIRROR_NS)) \
 		$(if $(filter true,$(PUSH)),--push) \
