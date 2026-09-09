@@ -10,6 +10,11 @@ kernel), `nvidia-open-firmware` (the matching GSP firmware), and
 `nvidia-persistenced` and the NVIDIA container toolkit, installed from the
 same `.run` installer).
 
+The kernel-module extension only loads on a kernel that embeds the
+certificate that signed the modules. Talos signs its kernel modules with a
+key generated per build and never published, so this repo publishes its own
+Talos kernel and imager; see [Kernel and module signing](#kernel-and-module-signing).
+
 ## How it works
 
 The build is two-phase:
@@ -44,6 +49,15 @@ Kernel-bound images (modules, firmware) follow the convention
 not kernel-bound and is versioned `<driver>-<toolkit>`, e.g.
 `610.57.04-v1.19.1`.
 
+3. **Kernel, imager and rebuilt upstream extensions** — the same pkgs graph
+   also publishes `kernel:<PKGS>` and `zfs-pkg:<PKGS>`, signed with this
+   repo's key. `make imager` builds `siderolabs/talos` at `TALOS_VERSION` with
+   `PKG_KERNEL` pointed at that kernel and pushes `imager:<TALOS_VERSION>`;
+   `make sidero-extensions` rebuilds the upstream kernel-module extensions
+   listed in `SIDERO_EXTENSIONS` against it. A self-hosted Image Factory
+   serving this imager and a catalog built with `make catalog` produces
+   installers on which `nvidia-open-modules` loads.
+
 ## Build
 
 Prerequisites: Docker with buildx, and an account on any OCI registry
@@ -67,6 +81,12 @@ make local-nvidia-open-modules DEST=_out
 
 # Discover the pkgs tag pinned by a Talos release (for the PKGS Makefile var)
 make talos-pkgs-version TALOS_VERSION=v1.14.0
+
+# Phase 3: imager and upstream extensions on our kernel
+make imager sidero-extensions linux-firmware-mirror PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
+
+# Script tests (signing-key helper, module signature verifier)
+make test
 ```
 
 **Kernel source fallback:** cdn.kernel.org is currently functional, so the
@@ -154,10 +174,11 @@ match the glibc extension built for the same Talos release.
 See [`_docs/machine-config-example.yaml`](_docs/machine-config-example.yaml) for
 a machine-config patch. Key points:
 
-- Both extensions must be baked into the installer/boot image together (Image
-  Factory schematic or a custom installer applied with
-  `talosctl upgrade --image`), and the **firmware and modules versions must
-  match exactly** — GSP firmware is mandatory and version-locked to the driver.
+- All three extensions must be baked into an installer built from this repo's
+  imager (self-hosted Image Factory schematic); the public factory's installers
+  use Sidero's kernel and reject these modules. The **firmware and modules
+  versions must match exactly** - GSP firmware is mandatory and version-locked
+  to the driver.
 - The modules extension blacklists the nvidia modules in `modprobe.d`, so they
   must be loaded explicitly via `machine.kernel.modules`: `nvidia`,
   `nvidia_uvm`, `nvidia_drm`, `nvidia_modeset`.
@@ -169,6 +190,39 @@ a machine-config patch. Key points:
   (`/etc/cri/conf.d/10-nvidia-container-runtime.part`) and generates the CDI
   spec at `/run/cdi/nvidia.yaml`; nodes need
   `machine.sysctls: net.core.bpf_jit_harden: "1"` as with Sidero's toolkit.
+
+## Kernel and module signing
+
+Talos builds its kernel with `CONFIG_MODULE_SIG_ALL=y` and boots with
+`module.sig_enforce=1`; the signing key is generated inside each
+`kernel-build` and never published. Modules built anywhere else are rejected
+with `key was rejected by service` (issue #11), and `module.sig_enforce=0`
+cannot override the built-in `=1` (the parameter is set-once).
+
+This repo therefore owns the key:
+
+- `certs/module-signing.crt` is the public certificate (committed).
+- The private key (PEM with key and certificate) is the `MODULE_SIGNING_KEY`
+  repository secret; `make overlay-sync` installs `MODULE_SIG_KEY_FILE`
+  (default `~/.cache/talos-nvidia-open-extension/module-signing-key.pem`) into
+  `kernel/build/certs/` and sets `CONFIG_MODULE_SIG_KEY` to it. Without the
+  key a throwaway one is generated for compile checks; `PUSH=true` refuses it.
+- Every `.ko` is verified with `hack/verify-module-signatures.sh` (`openssl
+  cms -verify` against the certificate the kernel embeds, and against
+  `certs/module-signing.crt` in the extension build). `make test` runs the
+  script tests.
+- Rotating the key: `hack/module-signing-key.sh generate <key.pem> certs/module-signing.crt`,
+  `gh secret set MODULE_SIGNING_KEY < <key.pem>`, commit the new certificate,
+  then rebuild kernel, imager, all extensions and reinstall every node. Kernel
+  and modules from different keys never mix.
+
+Consequences: a node must boot the kernel from `imager:<TALOS_VERSION>` of
+this repo, and every kernel-module extension on that node must be one of the
+`sidero-extensions` rebuilds (or an extension from this repo). Stock
+`ghcr.io/siderolabs/<driver>` extensions will not load on it. This is the
+trade-off for tracking NVIDIA GA releases ahead of `siderolabs/extensions`.
+Publishing the images changes no node; wiring them into a self-hosted Image
+Factory and upgrading nodes is a separate rollout.
 
 ## Compatibility
 
