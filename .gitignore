@@ -1,3 +1,9 @@
 _build/
 _out/
 _docs
+
+# private keys never enter the repo; the public cert lives in certs/module-signing.crt
+*.pem
+# copies made by make for the bldr pkg context (source: hack/, certs/)
+nvidia-open-modules/files/verify-module-signatures.sh
+nvidia-open-modules/files/module-signing.crt
