@@ -11,8 +11,8 @@
 #                      accepted limitation chosen over running a local registry
 #                      service container.
 #
-#   push (main / tag)  Build + push per-arch pkg images, merge them into one
-#   workflow_dispatch  multi-arch manifest, then build + push both extensions.
+#   push (main / tag)  Build + push the amd64 pkg image, then build + push the
+#   workflow_dispatch  extensions.
 #
 # Tag trigger: release tags follow <driver-version>-<talos-version>
 # (e.g. 595.71.05-v1.13.5), which has no common "v*" prefix, so we trigger on
@@ -46,22 +46,11 @@ env:
 jobs:
   # Phase 1: NVIDIA open kernel modules compiled against the Talos kernel
   # inside the pinned siderolabs/pkgs checkout. Full kernel compile on a cold
-  # cache: 30-60+ minutes per arch, hence the generous timeout.
-  #
-  # Each matrix leg pushes an arch-suffixed tag (…:<version>-amd64 /
-  # …:<version>-arm64); the extensions job merges them into the unsuffixed
-  # multi-arch tag that the Makefile's PKG_IMAGE default expects. arm64 runs
-  # on a native arm runner — a kernel build under QEMU is impractically slow.
+  # cache: 60+ minutes, hence the generous timeout. amd64 only: the cluster
+  # has no arm machines and a kernel build under QEMU emulation is
+  # impractically slow.
   pkg:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - name: Checkout
@@ -105,13 +94,11 @@ jobs:
           make nvidia-open-latest-pkg \
             REGISTRY="${REGISTRY}" \
             USERNAME="${USERNAME}" \
-            PLATFORM="linux/${{ matrix.arch }}" \
-            PKG_IMAGE="${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}-${{ matrix.arch }}" \
+            PLATFORM=linux/amd64 \
             PUSH=${{ github.event_name != 'pull_request' }}
 
-  # Phase 2: extension images. Repackaging only (no compilation), so building
-  # the arm64 leg under QEMU here is cheap, and one multi-platform build
-  # produces proper multi-arch extension images.
+  # Phase 2: extension images. Repackaging only (no compilation); one
+  # single-platform build produces the amd64 extension images.
   extensions:
     if: github.event_name != 'pull_request'
     needs: pkg
@@ -120,9 +107,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -150,17 +134,10 @@ jobs:
           talos="$(awk '/^TALOS_VERSION \?=/ {print $3}' Makefile)"
           echo "version=${driver}-${talos}" >> "$GITHUB_OUTPUT"
 
-      - name: Merge per-arch pkg images into a multi-arch manifest
-        run: |
-          docker buildx imagetools create \
-            --tag "${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}" \
-            "${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}-amd64" \
-            "${REGISTRY}/${USERNAME}/nvidia-open-latest-pkg:${{ steps.version.outputs.version }}-arm64"
-
       - name: Build and push extension images
         run: |
           make nvidia-open-modules nvidia-open-firmware nvidia-open-toolkit \
             REGISTRY="${REGISTRY}" \
             USERNAME="${USERNAME}" \
-            PLATFORM=linux/amd64,linux/arm64 \
+            PLATFORM=linux/amd64 \
             PUSH=true

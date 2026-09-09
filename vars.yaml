@@ -42,7 +42,7 @@ CONTAINER_TOOLKIT_SHA512: 4524ab3813d7819b2249aec9b7af6f4053f2f7119ebf23dfa58c95
 # glibc for the toolkit binaries and nvidia-installer (Talos base is musl).
 # Pinned to the glibc extension image siderolabs/extensions builds for the
 # same Talos release; must move with TALOS_VERSION.
-GLIBC_IMAGE: ghcr.io/siderolabs/glibc:2.43@sha256:598e7f65ee8e92e3647d79006eaebb4e48029d983f1b4d087909c710d1257774
+GLIBC_IMAGE: ghcr.io/siderolabs/glibc:2.43@sha256:396225a95a04983f882489ae37a9c8fc837a0c9d67c2ce99486d9c0e612f0ab9
 
 # renovate: datasource=docker versioning=docker depName=cgr.dev/chainguard/wolfi-base
 WOLFI_BASE_REF: sha256:02dab76bd852a70556b5b2002195c8a5fdab77d323c433bf6642aab080489795
