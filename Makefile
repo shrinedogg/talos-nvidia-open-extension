@@ -223,6 +223,51 @@ local-%: $(MODULES_FILES) ## Build extension and export rootfs to $(DEST)/<name>
 		--output=type=local,dest=$(DEST)/$* \
 		.
 
+# --- Phase 3: Talos imager and upstream extensions on our kernel -----------------
+# A node boots the kernel from the imager's /usr/install/<arch>/vmlinuz, so the
+# imager must be built with PKG_KERNEL pointed at $(KERNEL_IMAGE). Everything
+# else (installer-base, talosctl, overlays) stays Sidero's.
+$(TALOS_DIR):
+	git clone --depth 1 --branch $(TALOS_VERSION) https://github.com/siderolabs/talos $@
+
+.PHONY: imager
+imager: $(TALOS_DIR) ## Build (PUSH=true to push) $(REGISTRY)/$(USERNAME)/imager:$(TALOS_VERSION) with our kernel.
+	git -C $(TALOS_DIR) fetch --depth 1 origin tag $(TALOS_VERSION)
+	git -C $(TALOS_DIR) checkout -q $(TALOS_VERSION)
+	$(MAKE) -C $(TALOS_DIR) imager \
+		TAG=$(TALOS_VERSION) \
+		PLATFORM=linux/amd64 INSTALLER_ARCH=targetarch \
+		PKG_KERNEL=$(KERNEL_IMAGE) \
+		REGISTRY=ghcr.io USERNAME=siderolabs \
+		REGISTRY_AND_USERNAME=$(REGISTRY)/$(USERNAME) \
+		TOOLS_PREFIX=$(TOOLS_PREFIX)/tools TOOLS=$(TOOLS) \
+		PROGRESS=$(PROGRESS) PUSH=$(PUSH)
+
+# Every out-of-tree module on a node must be signed by the booted kernel's key,
+# so the upstream kernel-module extensions cluster1 uses are rebuilt from
+# siderolabs/extensions at $(TALOS_VERSION) with PKGS_PREFIX pointed at our
+# namespace: `kernel` and `zfs-pkg` resolve to our images, `linux-firmware`
+# (no modules) is a plain copy of Sidero's. Output tags equal upstream's
+# (e.g. i915:20260622-v1.14.0), which lets the catalog swap digests in place.
+SIDERO_EXTENSIONS ?= i915 xe mei amdgpu thunderbolt uhid uinput usb-audio-drivers nfsd zfs
+
+$(EXTENSIONS_DIR):
+	git clone --depth 1 --branch $(TALOS_VERSION) https://github.com/siderolabs/extensions $@
+
+.PHONY: linux-firmware-mirror
+linux-firmware-mirror: ## Copy ghcr.io/siderolabs/linux-firmware:$(PKGS) into our namespace (no modules inside; needed for PKGS_PREFIX override).
+	crane copy $(PKGS_PREFIX)/linux-firmware:$(PKGS) $(REGISTRY)/$(USERNAME)/linux-firmware:$(PKGS)
+
+.PHONY: sidero-extensions
+sidero-extensions: $(EXTENSIONS_DIR) ## Rebuild $(SIDERO_EXTENSIONS) against our kernel (PUSH=true to push).
+	git -C $(EXTENSIONS_DIR) fetch --depth 1 origin tag $(TALOS_VERSION)
+	git -C $(EXTENSIONS_DIR) checkout -q $(TALOS_VERSION)
+	$(MAKE) -C $(EXTENSIONS_DIR) $(SIDERO_EXTENSIONS) \
+		REGISTRY=$(REGISTRY) USERNAME=$(USERNAME) TAG=$(TALOS_VERSION) \
+		PKGS_PREFIX=$(REGISTRY)/$(USERNAME) PKGS=$(PKGS) \
+		TOOLS_PREFIX=$(TOOLS_PREFIX) TOOLS=$(TOOLS) \
+		PLATFORM=linux/amd64 PROGRESS=$(PROGRESS) PUSH=$(PUSH)
+
 # --- Maintenance ---------------------------------------------------------------
 
 # For a self-hosted Image Factory in custom-registry mode, override
@@ -238,6 +283,7 @@ catalog: ## Build/push extensions catalog (official + ours) for self-hosted Imag
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-modules:$(VERSION) \
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-firmware:$(VERSION) \
 		--extension $(REGISTRY)/$(USERNAME)/nvidia-open-toolkit:$(TOOLKIT_VERSION) \
+		--rebuilt-namespace $(REGISTRY)/$(USERNAME) $(foreach e,$(SIDERO_EXTENSIONS),--rebuilt $(e)) \
 		--tag $(CATALOG_TAG) \
 		$(if $(MIRROR_NS),--mirror-namespace $(MIRROR_NS)) \
 		$(if $(filter true,$(PUSH)),--push) \
