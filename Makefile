@@ -235,9 +235,12 @@ imager: $(TALOS_DIR) ## Build (PUSH=true to push) $(REGISTRY)/$(USERNAME)/imager
 	git -C $(TALOS_DIR) fetch --depth 1 origin tag $(TALOS_VERSION)
 	git -C $(TALOS_DIR) checkout -q $(TALOS_VERSION)
 	$(MAKE) -C $(TALOS_DIR) imager \
-		REGISTRY=$(REGISTRY) USERNAME=$(USERNAME) TAG=$(TALOS_VERSION) \
+		TAG=$(TALOS_VERSION) \
 		PLATFORM=linux/amd64 INSTALLER_ARCH=targetarch \
 		PKG_KERNEL=$(KERNEL_IMAGE) \
+		REGISTRY=ghcr.io USERNAME=siderolabs \
+		REGISTRY_AND_USERNAME=$(REGISTRY)/$(USERNAME) \
+		TOOLS_PREFIX=$(TOOLS_PREFIX)/tools TOOLS=$(TOOLS) \
 		PROGRESS=$(PROGRESS) PUSH=$(PUSH)
 
 # Every out-of-tree module on a node must be signed by the booted kernel's key,
