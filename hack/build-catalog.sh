@@ -72,7 +72,7 @@ docker run --rm "${CRANE_IMAGE}" export "ghcr.io/siderolabs/extensions:${TALOS_V
   > "${work}/catalog.tar"
 tar -xf "${work}/catalog.tar" -C "${work}" image-digests descriptions.yaml
 
-for ext in "${EXTENSIONS[@]}"; do
+for ext in "${EXTENSIONS[@]+"${EXTENSIONS[@]}"}"; do
   echo "==> resolving ${ext}"
   digest="$(crane digest "${ext}")"
   ref="${ext}@${digest}"
@@ -114,7 +114,7 @@ done
 # copy rebuilt against our kernel. mirror-overrides.txt records "<src> <dest>"
 # pairs so the mirror step can copy our image under the official path.
 : > "${work}/mirror-overrides.txt"
-for name in "${REBUILT[@]+'${REBUILT[@]}'}"; do
+for name in "${REBUILT[@]+"${REBUILT[@]}"}"; do
   official_line="$(grep -E "^ghcr.io/siderolabs/${name}:[^@]+@sha256:[0-9a-f]{64}$" "${work}/image-digests" || true)"
   [[ -n "${official_line}" ]] || { echo "error: ${name} is not in the official ${TALOS_VERSION} catalog" >&2; exit 1; }
   [[ "$(printf '%s\n' "${official_line}" | wc -l | tr -d ' ')" == 1 ]] || { echo "error: ${name} matches more than one catalog line" >&2; exit 1; }
