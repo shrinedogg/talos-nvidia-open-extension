@@ -85,7 +85,7 @@ make talos-pkgs-version TALOS_VERSION=v1.14.0
 # Phase 3: imager and upstream extensions on our kernel
 make imager sidero-extensions linux-firmware-mirror PUSH=true REGISTRY=docker.io USERNAME=<dockerhub-user>
 
-# Script tests (signing-key helper, module signature verifier)
+# Shell tests (catalog builder, imager contract, signing-key helper, signature verifier)
 make test
 ```
 
