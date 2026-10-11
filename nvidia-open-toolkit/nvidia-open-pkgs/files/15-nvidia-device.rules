@@ -1,5 +1,14 @@
-# This will create the device nvidia device nodes
-ACTION=="add", DEVPATH=="/bus/pci/drivers/nvidia", RUN+="/usr/local/bin/nvidia-modprobe -c 0"
+# This will create the device nvidia device nodes, including nvidia-modeset.
+# The -m flag matters: nvidia-modeset.ko registers only the nvidia-modeset
+# char class (major 195, minor 254); no struct device or uevent is ever
+# emitted, so nothing else creates /dev/nvidia-modeset on udev-less systems
+# (Talos's /dev is tmpfs). The 615 NVIDIA Vulkan ICD dereferences a garbage
+# function pointer in libnvidia-glcore when the node is absent (vulkaninfo/
+# vkcube SIGSEGV; vkCreateSwapchainKHR -> VK_ERROR_UNKNOWN -13 in every
+# Proton/vkd3d game), while 610 tolerated its absence. Verified on nv-01:
+# creating the node makes the 615 Vulkan WSI path work again
+# (talos-nvidia-open-extension#19).
+ACTION=="add", DEVPATH=="/bus/pci/drivers/nvidia", RUN+="/usr/local/bin/nvidia-modprobe -c 0 -m"
 
 # Create the device node for the nvidia-uvm module
 ACTION=="add", DEVPATH=="/module/nvidia_uvm", SUBSYSTEM=="module", RUN+="/usr/local/bin/nvidia-modprobe -c 0 -u"
