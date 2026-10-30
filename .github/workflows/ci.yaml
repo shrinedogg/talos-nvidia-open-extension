@@ -53,7 +53,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, cluster0]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -68,7 +68,7 @@ jobs:
   # impractically slow.
   kernel-pkgs:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, cluster0]
     timeout-minutes: 180
     steps:
       - name: Checkout
@@ -99,8 +99,7 @@ jobs:
 
       - name: Free runner disk (kernel + NVIDIA + zfs builds need ~40 GB)
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune -af
+          docker image prune -af
           df -h /
 
       # The release key signs the kernel and every module; without it the
@@ -144,7 +143,7 @@ jobs:
   extensions:
     if: github.event_name != 'pull_request'
     needs: kernel-pkgs
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, cluster0]
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -192,7 +191,7 @@ jobs:
   imager:
     if: github.event_name != 'pull_request'
     needs: kernel-pkgs
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, cluster0]
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -201,8 +200,7 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - name: Free runner disk
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune -af
+          docker image prune -af
           df -h /
       - uses: docker/login-action@v4
         with:
@@ -216,7 +214,7 @@ jobs:
   sidero-extensions:
     if: github.event_name != 'pull_request'
     needs: kernel-pkgs
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, cluster0]
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
