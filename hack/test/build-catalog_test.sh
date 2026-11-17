@@ -27,11 +27,14 @@
 #
 # Hermetic fallback: the container-fallback case runs the script with a
 # constructed minimal PATH (hermetic_container_path): the fake-docker dir
-# first, then a private toolbin with symlinks to the tools the script +
-# fakes need. The caller's PATH is excluded entirely, and no directory of
-# any required tool is on the fallback PATH, so a crane co-located with
+# first, then a private toolbin with exec wrappers for the tools the
+# script + fakes need. The caller's PATH is excluded entirely, and no
+# directory of any required tool is on the fallback PATH, so a crane
+# co-located with
 # those tools (the norm: /usr/local/bin alongside python3, Homebrew
-# prefixes) is invisible too. On a machine with a real crane (the dev
+# prefixes) is invisible too. The wrappers exec the caller-side resolved
+# paths, so an interpreter prefix (a venv, a pyenv shim) survives the
+# hermetic PATH. On a machine with a real crane (the dev
 # workflow's make target needs a bare `crane` on PATH, Makefile:259) the
 # script's `command -v crane` finds nothing and the container fallback is
 # actually taken, without hitting any registry.
@@ -58,7 +61,10 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# The script's sanity step needs python3+yaml.
+# The script's sanity step needs python3+yaml. The check is representative
+# of the container-fallback case as well: that case's toolbin python3 is
+# an exec wrapper around this same caller-side interpreter, so both see
+# the same interpreter and prefix (a venv stays a venv).
 python3 -c 'import yaml' 2>/dev/null || { echo "SKIP: python3+yaml not available"; exit 0; }
 
 # --- fixture catalog ---------------------------------------------------------
@@ -160,20 +166,26 @@ mkdir -p "$tmp/bin-container"
 cp "$tmp/bin/docker" "$tmp/bin-container/docker"
 
 # Constructed minimal PATH for the container-fallback case: the fake-docker
-# dir first, then a private toolbin with symlinks to the tools the script
-# + fakes invoke. The caller's PATH is deliberately excluded, and no
-# required-tool directory is on this PATH, so a crane co-located with any
-# of those tools is invisible to the script's `command -v crane` and it
-# must take the container fallback. The tool list covers every external
-# command the script or fakes run: python3 tar grep sed awk openssl bash
-# env cat mktemp rm sh (shebangs, the sanity and digest pipeline, --out)
-# plus wc tr cp mkdir (line counts, artifact copy).
+# dir first, then a private toolbin holding an exec wrapper for each tool
+# the script + fakes invoke. Each wrapper execs the caller-side resolved
+# absolute path, so argv[0] carries the real path: an interpreter prefix
+# (a venv's bin, a pyenv shim dir) survives — a symlink in the toolbin
+# would drop it, because CPython resolves the venv from the argv[0]
+# directory and would fall back to the base prefix. The caller's PATH is
+# deliberately excluded, and no required-tool directory is on this PATH,
+# so a crane co-located with any of those tools is invisible to the
+# script's `command -v crane` and it must take the container fallback.
+# The tool list covers every external command the script or fakes run:
+# python3 tar grep sed awk openssl bash env cat mktemp rm sh (shebangs,
+# the sanity and digest pipeline, --out) plus wc tr cp mkdir (line
+# counts, artifact copy).
 hermetic_container_path() {
   local tool d
   mkdir -p "$tmp/toolbin"
   for tool in python3 tar grep sed awk openssl bash env cat mktemp rm sh wc tr cp mkdir; do
     d="$(command -v "$tool" 2>/dev/null)" || { fail "hermetic PATH: required tool ${tool} not on caller PATH"; }
-    ln -sf "$d" "$tmp/toolbin/$tool"
+    printf '#!/bin/sh\nexec "%s" "$@"\n' "$d" > "$tmp/toolbin/$tool"
+    chmod +x "$tmp/toolbin/$tool"
   done
   printf '%s' "$tmp/bin-container:$tmp/toolbin"
 }
