@@ -276,5 +276,12 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Provision python3 + PyYAML (build-catalog.sh parses manifest.yaml)
+        run: |
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3-yaml
+          fi
+          python3 -c 'import yaml; print("python3 + PyYAML ready:", yaml.__version__)'
       - name: Build and push extensions catalog
         run: make catalog REGISTRY="${REGISTRY}" USERNAME="${USERNAME}" PUSH=true
