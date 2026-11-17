@@ -27,11 +27,14 @@
 #
 # Hermetic fallback: the container-fallback case runs the script with a
 # constructed minimal PATH (hermetic_container_path): the fake-docker dir
-# first, then only the dirs of the tools the script + fakes need. The
-# caller's PATH is excluded entirely, so on a machine with a real crane on
-# PATH (the README dev workflow installs one; the Makefile runs a bare
-# `crane copy`) the script's `command -v crane` finds nothing and the
-# container fallback is actually taken, without hitting any registry.
+# first, then a private toolbin with symlinks to the tools the script +
+# fakes need. The caller's PATH is excluded entirely, and no directory of
+# any required tool is on the fallback PATH, so a crane co-located with
+# those tools (the norm: /usr/local/bin alongside python3, Homebrew
+# prefixes) is invisible too. On a machine with a real crane (the dev
+# workflow's make target needs a bare `crane` on PATH, Makefile:259) the
+# script's `command -v crane` finds nothing and the container fallback is
+# actually taken, without hitting any registry.
 #
 # Mutation proof: the suite honors BUILD_CATALOG_SCRIPT (default
 # ${here}/../build-catalog.sh); point it at a sed-mutated copy of the
@@ -101,9 +104,9 @@ tar -C "$tmp/ext" -cf "$tmp/ext.tar" manifest.yaml
 # Shared fixture logic for the crane calls. The fake docker (container path)
 # and the fake crane binary (PATH path) both exec it; the fixture tars live
 # in $CRANE_FIXTURE_DIR:
-#   .crane-fixture export ghcr.io/siderolabs/extensions:<ver> - <marker> -> catalog tar
-#   .crane-fixture export <extension-ref> - <marker>                    -> manifest tar
-#   .crane-fixture digest <ref> <marker>                                -> sha256:<hash>
+#   .crane-fixture export ghcr.io/siderolabs/extensions:<ver> <marker> -> catalog tar
+#   .crane-fixture export <extension-ref> <marker>                     -> manifest tar
+#   .crane-fixture digest <ref> <marker>                               -> sha256:<hash>
 # The trailing <marker> ("binary" / "container") is written to
 # $CRANE_PATH_MARKER so the suite can assert which path actually served the
 # call; stdout stays the clean fixture stream.
@@ -157,27 +160,22 @@ mkdir -p "$tmp/bin-container"
 cp "$tmp/bin/docker" "$tmp/bin-container/docker"
 
 # Constructed minimal PATH for the container-fallback case: the fake-docker
-# dir first, then one dir per tool the script + fakes invoke. The caller's
-# PATH is deliberately excluded, so no outer crane can be seen and the
-# script must take the container fallback. The tool list covers every
-# external command the script or fakes run: python3 tar grep sed awk
-# openssl bash env cat mktemp rm sh (shebangs, the sanity and digest
-# pipeline, --out) plus wc tr cp mkdir (line counts, artifact copy).
+# dir first, then a private toolbin with symlinks to the tools the script
+# + fakes invoke. The caller's PATH is deliberately excluded, and no
+# required-tool directory is on this PATH, so a crane co-located with any
+# of those tools is invisible to the script's `command -v crane` and it
+# must take the container fallback. The tool list covers every external
+# command the script or fakes run: python3 tar grep sed awk openssl bash
+# env cat mktemp rm sh (shebangs, the sanity and digest pipeline, --out)
+# plus wc tr cp mkdir (line counts, artifact copy).
 hermetic_container_path() {
   local tool d
-  local dirs=()
+  mkdir -p "$tmp/toolbin"
   for tool in python3 tar grep sed awk openssl bash env cat mktemp rm sh wc tr cp mkdir; do
     d="$(command -v "$tool" 2>/dev/null)" || { fail "hermetic PATH: required tool ${tool} not on caller PATH"; }
-    dirs+=("$(dirname "$d")")
+    ln -sf "$d" "$tmp/toolbin/$tool"
   done
-  local out="$tmp/bin-container"
-  for d in "${dirs[@]}"; do
-    case ":$out:" in
-      *":$d:"*) ;;
-      *) out="${out}:${d}" ;;
-    esac
-  done
-  printf '%s' "$out"
+  printf '%s' "$tmp/bin-container:$tmp/toolbin"
 }
 
 i915_ours_digest="sha256:$(printf '%s' 'docker.io/example/i915:20260810-v1.14.0' | openssl dgst -sha256 | awk '{print $NF}')"
