@@ -30,10 +30,12 @@
 # match). Use it for air-gapped/self-signed factories where ALL images are
 # mirrored and cosign-signed with your key (see docs/self-hosted-factory.md).
 #
-# Requires: docker (crane + buildx are run via containers/daemon), python3+yaml.
+# Requires: python3+yaml; docker for buildx; crane from PATH when present
+# (e.g. imjasonh/setup-crane), otherwise the CRANE_IMAGE container
+# (overridable; defaults to gcr.io/go-containerregistry/crane:latest).
 set -euo pipefail
 
-CRANE_IMAGE="gcr.io/go-containerregistry/crane:latest"
+CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane:latest}"
 
 TALOS_VERSION=""
 TAG=""
@@ -62,13 +64,24 @@ done
 [[ ${#EXTENSIONS[@]} -gt 0 || ${#REBUILT[@]} -gt 0 ]] || { echo "error: at least one --extension or --rebuilt required" >&2; exit 2; }
 [[ ${#REBUILT[@]} -eq 0 || -n "${REBUILT_NS}" ]] || { echo "error: --rebuilt requires --rebuilt-namespace" >&2; exit 2; }
 
-crane() { docker run --rm "${CRANE_IMAGE}" "$@"; }
+# The wrapper below shadows `command -v crane` once defined, so capture the
+# binary path first: a PATH crane (e.g. from imjasonh/setup-crane) wins, and
+# the container is the fallback.
+CRANE_BIN="$(command -v crane || true)"
+
+crane() {
+  if [ -n "${CRANE_BIN}" ]; then
+    "${CRANE_BIN}" "$@"
+  else
+    docker run --rm "${CRANE_IMAGE}" "$@"
+  fi
+}
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
 echo "==> fetching official catalog ghcr.io/siderolabs/extensions:${TALOS_VERSION}"
-docker run --rm "${CRANE_IMAGE}" export "ghcr.io/siderolabs/extensions:${TALOS_VERSION}" - \
+crane export "ghcr.io/siderolabs/extensions:${TALOS_VERSION}" - \
   > "${work}/catalog.tar"
 tar -xf "${work}/catalog.tar" -C "${work}" image-digests descriptions.yaml
 
@@ -83,7 +96,7 @@ for ext in "${EXTENSIONS[@]+"${EXTENSIONS[@]}"}"; do
   fi
 
   echo "    manifest metadata"
-  docker run --rm "${CRANE_IMAGE}" export "${ext}" - \
+  crane export "${ext}" - \
     | tar -xO manifest.yaml > "${work}/ext-manifest.yaml"
 
   author="$(python3 -c "
